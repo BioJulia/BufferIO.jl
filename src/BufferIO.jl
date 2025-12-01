@@ -32,7 +32,8 @@ export AbstractBufReader,
     line_views,
     skip_exact,
     takestring!,
-    write_repeated
+    write_repeated,
+    relative_seek
 
 public LineViewIterator
 
@@ -201,6 +202,7 @@ Subtypes may optionally define the following methods. See their docstring for `B
 for details of the implementation:
 
 * `Base.seek(io::T, ::Int)`
+* `relative_seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`
 * `resize_buffer(io::T, ::Int)`

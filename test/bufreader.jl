@@ -115,6 +115,50 @@ end
     @test_throws IOError seek(reader, 11)  # Beyond end
 end
 
+function test_bad_relative_seek(io, delta)
+    return try
+        relative_seek(io, delta)
+        @test false
+    catch e
+        if e isa IOError && e.kind == IOErrorKinds.BadSeek
+            @test true
+        else
+            rethrow()
+        end
+    end
+end
+
+@testset "Relative seek" begin
+    reader = BufReader(IOBuffer("0123456789"), 4)
+    test_bad_relative_seek(reader, -1)
+    test_bad_relative_seek(reader, 11)
+    relative_seek(reader, 3)
+    @test read(reader) == b"3456789"
+
+    reader = BufReader(IOBuffer("0123456789"), 4)
+    relative_seek(reader, 2)
+    @test read(reader, UInt8) == UInt8('2')
+    test_bad_relative_seek(reader, -4)
+    test_bad_relative_seek(reader, 8)
+    relative_seek(reader, -2)
+    @test read(reader, UInt8) == UInt8('1')
+
+    reader = BufReader(IOBuffer("0123456789"), 4)
+    relative_seek(reader, 10)
+    @test eof(reader)
+    relative_seek(reader, 0)
+    test_bad_relative_seek(reader, 1)
+    test_bad_relative_seek(reader, -11)
+
+    reader = BufReader(IOBuffer("0123456789"), 4)
+    relative_seek(reader, 6)
+    @test read(reader) == b"6789"
+    relative_seek(reader, -3)
+    @test read(reader) == b"789"
+    relative_seek(reader, -8)
+    @test read(reader) == b"23456789"
+end
+
 @testset "filesize compatibility" begin
     # Test that seek works with filesize bounds
     io = IOBuffer("test data")
