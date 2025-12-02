@@ -1,3 +1,6 @@
+# 0.2.2
+* Add method `line_views(::MemoryView{UInt8})`
+
 # 0.2.1
 * Add methods for `unsafe_write` for AbstractBufWriter
 

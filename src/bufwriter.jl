@@ -17,14 +17,14 @@ julia> print(wtr, "Hello!")
 julia> write(wtr, [0x1234, 0x5678])
 4
 
-julia> read(io) # wtr not flushed
-UInt8[]
+julia> isempty(read(io)) # wtr not flushed
+true
 
 julia> flush(wtr); seekstart(io); String(read(io))
 "Hello!4\\x12xV"
 
-julia> get_unflushed(wtr)
-0-element MutableMemoryView{UInt8}
+julia> isempty(get_unflushed(wtr))
+true
 ```
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
@@ -103,8 +103,8 @@ julia> (typeof(buffer), length(buffer))
 julia> write(writer, "abcde")
 5
 
-julia> get_buffer(writer) |> println
-UInt8[]
+julia> get_buffer(writer) |> isempty
+true
 
 julia> flush(writer)
 
@@ -167,8 +167,8 @@ julia> unflushed[2] = UInt8('x')
 julia> flush(writer); take!(io) |> println
 UInt8[0x61, 0x78, 0x63]
 
-julia> get_unflushed(writer) |> println
-UInt8[]
+julia> get_unflushed(writer) |> isempty
+true
 ```
 """
 function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
@@ -230,8 +230,8 @@ If none of these can grow the buffer, return zero.
 
 # Examples
 ```jldoctest
-julia> v = VecWriter(undef, 0); get_buffer(v) |> show
-UInt8[]
+julia> v = VecWriter(undef, 0); get_buffer(v) |> isempty
+true
 
 julia> n_grown = grow_buffer(v); n_grown > 0
 true

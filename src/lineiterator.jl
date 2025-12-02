@@ -134,3 +134,58 @@ See also: [`line_views`](@ref)
 function Base.eachline(x::AbstractBufReader; keep::Bool = false)
     return EachLine{typeof(x)}(line_views(x; chomp = !keep))
 end
+
+struct MemLineViewIterator
+    mem::ImmutableMemoryView{UInt8}
+    chomp::Bool
+end
+
+Base.IteratorSize(::Type{MemLineViewIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{MemLineViewIterator}) = ImmutableMemoryView{UInt8}
+
+"""
+    line_views(x::MemoryView{UInt8}; chomp::Bool=true)
+
+Return a stateless iterator of the lines in `x`.
+The returned views are `ImmutableMemoryView{UInt8}` views into `x`.
+Use the package StringViews.jl to turn them into `AbstractString`s.
+
+A line is defined as all data up to and
+including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if
+no `\\n` byte was found.
+If the input is empty, this iterator is also empty.
+
+The `chomp` keyword (default: true), controls whether
+any trailing `\\r\\n` or `\\n` should be removed from the output.
+
+# Examples
+```jldoctest
+julia> mem = MemoryView("abc\\r\\ndef\\nab\\n");
+
+julia> foreach(i -> println(repr(String(i))), line_views(mem))
+"abc"
+"def"
+"ab"
+```
+"""
+function line_views(x::MemoryView{UInt8}; chomp::Bool = true)
+    return MemLineViewIterator(ImmutableMemoryView(x), chomp)
+end
+
+function Base.iterate(x::MemLineViewIterator, state::Int = 0)
+    # State is the offset
+    mem = x.mem
+    state >= length(mem) && return nothing
+
+    newref = @inbounds memoryref(mem.ref, state + 1)
+    mem = ImmutableMemoryView(MemoryViews.unsafe_from_parts(newref, length(mem) - state))
+    pos = findfirst(==(0x0a), mem)
+    if pos === nothing
+        return (mem, state + length(mem))
+    end
+    line = @inbounds mem[1:pos]
+    if x.chomp
+        line = _chomp(line)
+    end
+    return (line, state + pos)
+end
