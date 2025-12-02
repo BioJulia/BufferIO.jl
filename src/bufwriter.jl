@@ -24,7 +24,7 @@ julia> flush(wtr); seekstart(io); String(read(io))
 "Hello!4\\x12xV"
 
 julia> get_unflushed(wtr)
-0-element MutableMemoryView{UInt8}
+UInt8[]
 ```
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter

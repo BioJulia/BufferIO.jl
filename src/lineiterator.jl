@@ -160,7 +160,7 @@ any trailing `\\r\\n` or `\\n` should be removed from the output.
 
 # Examples
 ```jldoctest
-julia> mem = MemoryView("abc\r\ndef\nab\n");
+julia> mem = MemoryView("abc\\r\\ndef\\nab\\n");
 
 julia> foreach(i -> println(repr(String(i))), line_views(mem))
 "abc"

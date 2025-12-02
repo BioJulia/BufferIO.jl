@@ -13,7 +13,7 @@ Throw an `ArgumentError` if `buffer_size` is less than 1.
 julia> rdr = BufReader(IOBuffer("Hello, world!\\nabc\\r\\ndef"));
 
 julia> get_buffer(rdr)
-0-element ImmutableMemoryView{UInt8}
+UInt8[]
 
 julia> peek(rdr)
 0x48
