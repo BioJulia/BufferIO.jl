@@ -329,8 +329,8 @@ Returns `nothing` only if `x` is EOF.
 ```jldoctest
 julia> reader = BufReader(IOBuffer("abc"));
 
-julia> get_buffer(reader) |> println # empty
-UInt8[]
+julia> get_buffer(reader) |> isempty
+true
 
 julia> get_nonempty_buffer(reader) |> println
 UInt8[0x61, 0x62, 0x63]

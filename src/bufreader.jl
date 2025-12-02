@@ -12,8 +12,8 @@ Throw an `ArgumentError` if `buffer_size` is less than 1.
 ```jldoctest
 julia> rdr = BufReader(IOBuffer("Hello, world!\\nabc\\r\\ndef"));
 
-julia> get_buffer(rdr)
-UInt8[]
+julia> get_buffer(rdr) |> isempty
+true
 
 julia> peek(rdr)
 0x48
@@ -91,8 +91,8 @@ To fill the buffer, call [`fill_buffer`](@ref).
 ```jldoctest
 julia> reader = BufReader(IOBuffer("abcdefghij"), 5);
 
-julia> get_buffer(reader) |> println
-UInt8[]
+julia> get_buffer(reader) |> isempty
+true
 
 julia> fill_buffer(reader)
 5
