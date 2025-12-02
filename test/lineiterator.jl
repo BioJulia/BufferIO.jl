@@ -175,3 +175,80 @@ end
         @test String(view) == str
     end
 end
+
+@testset "line_views with MemoryView basic functionality" begin
+    # Test basic line iteration with MemoryView
+    mem = MemoryView("line1\nline2\nline3")
+    iter = line_views(mem)
+
+    # Test iterator properties
+    @test eltype(iter) == ImmutableMemoryView{UInt8}
+    @test Base.IteratorSize(typeof(iter)) == Base.SizeUnknown()
+
+    # Collect all lines
+    lines = collect(iter)
+    @test lines isa Vector{ImmutableMemoryView{UInt8}}
+    @test String.(lines) == ["line1", "line2", "line3"]
+
+    # Test is stateless, as docs specify
+    @test collect(iter) == lines
+
+    # Test from mutable memory
+    lit = line_views(MemoryView(collect(b"abcde\r\ndef\r\n")))
+    lines = collect(lit)
+    @test lines isa Vector{ImmutableMemoryView{UInt8}}
+    @test lines == [b"abcde", b"def"]
+end
+
+@testset "line_views with MemoryView and chomp" begin
+    # Test default chomping behavior
+    mem = MemoryView("hello\nworld\n")
+    lines = collect(line_views(mem))
+    @test String.(lines) == ["hello", "world"]
+
+    # Test with \r\n endings
+    mem2 = MemoryView("line1\r\nline2\r\n")
+    lines2 = collect(line_views(mem2; chomp = true))
+    @test String.(lines2) == ["line1", "line2"]
+
+    # Test with chomp=false
+    mem3 = MemoryView(codeunits("a\nb\n"))
+    lines3 = collect(line_views(mem3; chomp = false))
+    @test String.(lines3) == ["a\n", "b\n"]
+end
+
+@testset "line_views with MemoryView edge cases" begin
+    # Empty input
+    @test isempty(collect(line_views(MemoryView(UInt8[]))))
+
+    # Single line without newline
+    mem1 = MemoryView("single line")
+    @test collect(line_views(mem1)) == [b"single line"]
+
+    # Only newlines
+    mem2 = MemoryView("\n\n\n")
+    lines2 = collect(line_views(mem2))
+    @test String.(lines2) == ["", "", ""]
+
+    # Single newline
+    mem3 = MemoryView("\n")
+    @test collect(line_views(mem3)) == [b""]
+end
+
+@testset "line_views MemoryView vs AbstractBufReader consistency" begin
+    # Verify that line_views gives consistent results for same data
+    test_data = "line1\nline2\r\nline3\n"
+
+    # Using MemoryView
+    mem = MemoryView(test_data)
+    mem_lines = collect(line_views(mem))
+
+    # Using AbstractBufReader
+    reader = GenericBufReader(test_data)
+    reader_lines = collect(line_views(reader))
+
+    @test length(mem_lines) == length(reader_lines)
+    for (mem_line, reader_line) in zip(mem_lines, reader_lines)
+        @test mem_line == reader_line
+    end
+end
