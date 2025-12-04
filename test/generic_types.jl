@@ -90,6 +90,6 @@ function Base.close(x::BoundedWriter)
 end
 
 function Base.flush(x::BoundedWriter)
-    write(x.x, ImmutableMemoryView(x.mem)[1:x.written])
+    grow_buffer(x)
     return nothing
 end

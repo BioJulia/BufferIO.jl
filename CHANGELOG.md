@@ -1,3 +1,6 @@
+# Unreleased
+* Add `write_repeated`
+
 # 0.2.2
 * Add method `line_views(::MemoryView{UInt8})`
 
