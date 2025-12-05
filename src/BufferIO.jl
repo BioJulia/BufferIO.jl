@@ -31,7 +31,8 @@ export AbstractBufReader,
     read_all!,
     line_views,
     skip_exact,
-    takestring!
+    takestring!,
+    write_repeated
 
 public LineViewIterator
 
@@ -473,6 +474,39 @@ function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemory
 end
 
 ##########################
+
+"""
+	write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)::Int
+
+Write `byte` to `io` `n` times, or until `io` is full, and return the number
+of written bytes.
+This is equivalent to `write(io, fill(byte, n))`, but more efficient.
+
+Throw an `InexactError` if `n` is negative.
+
+# Examples
+```jldoctest
+julia> w = VecWriter(collect(b"abc"));
+
+julia> write_repeated(w, UInt8('x'), 6)
+6
+
+julia> takestring!(w)
+"abcxxxxxx"
+```
+"""
+function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)
+    remaining = UInt(n)::UInt
+    original = remaining
+    while !iszero(remaining)
+        buffer = @something get_nonempty_buffer(io) return (original - remaining) % Int
+        buffer = @inbounds buffer[1:min(length(buffer) % UInt, remaining)]
+        fill!(buffer, byte)
+        @inbounds consume(io, length(buffer))
+        remaining -= length(buffer) % UInt
+    end
+    return original % Int
+end
 
 function copyto_start!(dst::MutableMemoryView{T}, src::ImmutableMemoryView{T})::Int where {T}
     mn = min(length(dst), length(src))

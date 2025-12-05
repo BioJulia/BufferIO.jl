@@ -244,3 +244,16 @@ end
     @test write(io, '😁') == 4
     @test io.x.vec == b"\0P\x7fæ😁"
 end
+
+@testset "write_repeated" begin
+    io = BoundedWriter(10)
+    @test write_repeated(io, UInt8('y'), 33) === 33
+    flush(io)
+    @test takestring!(io.x) == 'y'^33
+
+    io = GenericBufWriter()
+    @test write_repeated(io, UInt8(33), 0) === 0
+    @test isempty(takestring!(io.x))
+    @test write_repeated(io, UInt8(0x03), 8) === 8
+    @test takestring!(io.x) == '\3'^8
+end
