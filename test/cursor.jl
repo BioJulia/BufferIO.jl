@@ -104,6 +104,18 @@ end
         @test e isa IOError
         @test e.kind == IOErrorKinds.BadSeek
     end
+
+    # Relative seek
+    reader = CursorReader("0123456789")
+    relative_seek(reader, 4)
+    @test read(reader, UInt8) == UInt8('4')
+    relative_seek(reader, -2)
+    @test read(reader, UInt8) == UInt8('3')
+    relative_seek(reader, 6)
+    @test eof(reader)
+    relative_seek(reader, -7)
+    @test read(reader, UInt8) == UInt8('3')
+    @test_throws IOError relative_seek(reader, -5)
 end
 
 @testset "read_all!" begin

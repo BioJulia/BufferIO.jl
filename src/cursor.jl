@@ -97,4 +97,19 @@ function Base.seek(x::CursorReader, offset::Integer)
     return x
 end
 
+"""
+    relative_seek(io::AbstractBufReader, delta::Int) -> io
+
+Seek the stream by `delta` relative to the current position.
+Seeking by a positive delta will advance the stream, and a negative
+delta rewinds the stream. When delta is zero, the stream is unchanged.
+
+Seeking beyond either end of the stream will throw an `IOError` of kind `BadSeek`.
+
+This method can be faster than `seek`, because it does not require
+`io` to query its absolute position, and therefore, in certain circumstances,
+the seeking can occur purely in-memory without interacting with the underlying IO.
+"""
+relative_seek(x::CursorReader, delta::Int) = seek(x, delta + x.offset)
+
 read_all!(io::CursorReader, dst::MutableMemoryView{UInt8}) = read_into!(io, dst)
