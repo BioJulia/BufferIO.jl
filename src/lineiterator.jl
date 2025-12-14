@@ -1,50 +1,81 @@
+"""
+    LineViewIterator{T <: AbstractBufReader}
+
+This iterator is created by [`line_views(::AbstractBufReader)`](@ref).
+It is public, but is currently unexported.
+
+It has two public properties: `io.reader` obtains its inner `AbstractBufReader`, and
+`io.chomp::Bool` returns whether this iterator strips line endings.
+
+For semantics of iteration, see documentation of [`line_views(::AbstractBufReader)`](@ref).
+"""
 struct LineViewIterator{T <: AbstractBufReader}
     reader::T
     chomp::Bool
 end
 
 """
-    line_views(x::AbstractBufReader; chomp::Bool=true)
+    line_views(x::AbstractBufReader; chomp::Bool=true)::LineViewIterator{typeof(x)}
 
-Create an efficient iterator of lines of `x`.
-The returned views are `ImmutableMemoryView{UInt8}` views into `x`'s buffer, 
-and are invalidated when `x` is mutated or the line iterator is advanced.
+Create an iterator of lines of `x`.
+The returned views are `ImmutableMemoryView{UInt8}` into `x`'s buffer.
+Use the package StringViews.jl to turn the lines into `AbstractString`s.
 
-When iterating the iterator, `x` is not advanced on the first call to `iterate`.
-Subsequent calls will advance `x` to get the next line, thus invalidating the
-previous line view.
+The views may be invalidated when mutating `x`, which may happen on subsequent iterations
+of the iterator. See extended help for more precise semantics.
 
-A line is defined as all data up to and
-including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if
-no `\\n` byte was found.
-If the input is empty, this iterator is also empty.
-
-The lines are iterated as `ImmutableMemoryView{UInt8}`. Use the package StringViews.jl
-to turn them into `AbstractString`s. The `chomp` keyword (default: true), controls whether
-any trailing `\\r\\n` or `\\n` should be removed from the output.
-
-If `x` had a limited buffer size, and an entire line cannot be kept in the buffer, an
-`ArgumentError` is thrown.
-
-The resulting iterator will NOT close `x` when done, this must be handled by the caller.
+The `chomp` keyword (default: `true`), controls whether
+any trailing `\\r\\n` or `\\n` bytes should be removed from the output.
 
 # Examples
 ```jldoctest
 julia> lines = line_views(CursorReader("abc\\r\\ndef\\n\\r\\ngh"));
 
-julia> (line, state) = iterate(lines); String(line)
+julia> first(lines) |> String
 "abc"
 
-julia> println(first(lines)) # not advanced until 2-arg iterate call
-UInt8[0x61, 0x62, 0x63]
+julia> first(lines) == b"abc"
+true
 
-julia> iterate(lines, state) |> first |> String # advance to "def"
-"def"
+julia> first(iterate(lines, 9)) |> String
+""
 
-julia> line = nothing # `line` is now invalidated
+julia> sum(length, lines)
+2
 
-julia> sum(length, lines) # "def" + "" + "gh"
-5
+julia> isempty(lines)
+true
+```
+
+# Extended help
+A line is defined as all data up to and including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a),
+or the remainder of the data in `io` if no `\\n` byte was found.
+If the input is empty, this iterator is also empty.
+
+If `x` had a limited buffer size, and cannot grow its buffer,
+and an entire line cannot be kept in the buffer, an `ArgumentError` is thrown.
+
+The resulting iterator will NOT close `x` when exhausted, this must be handled elsewhere.
+
+### Iterator state and io advancement
+The resulting iterator `itr::LineViewIterator`'s state is guaranteed, public interface:
+
+* `iterate(itr)` is equivalent to `iterate(itr, 0)`
+* `iterate(itr, n::Int)` is equivalent to `consume(x, n); iterate(itr)`
+* The state returned by `iterate` is an `Int` equal to the length of the line
+  emitted, plus the number of stripped `\\r\\n` or `\\n` bytes, if `chomp`.
+
+These semantics together mean that a normal for-loop will exhaust the underlying io,
+and that no emitted line will be invalidated before the next call to `iterate`.
+
+As an example, to read two lines, one may do:
+```julia
+# Read first line, and do something  with it
+(line_1, s) = iterate(itr);    x = process(line_1)
+# Two argument iterate advances itr to the begining of next line.
+(line_2, s) = iterate(itr, s); y = process(line_2)
+# Advance iterator from second line to third line
+consume(itr.reader, s) # .reader is a public property
 ```
 """
 function line_views(x::AbstractBufReader; chomp::Bool = true)
@@ -60,7 +91,7 @@ function Base.iterate(x::LineViewIterator, state::Int = 0)
 
     pos = buffer_until(x.reader, 0x0a)
     if pos isa HitBufferLimit
-        throw(ArgumentError("Could not buffer a whole line!"))
+        throw(ArgumentError("Buffer too short to buffer a whole line, and cannot be expanded."))
     elseif pos === nothing
         # No more newlines until EOF. Close as we reached EOF
         buffer = get_buffer(x.reader)
