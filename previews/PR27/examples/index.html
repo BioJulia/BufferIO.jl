@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Examples · BufferIO.jl</title><meta name="title" content="Examples · BufferIO.jl"/><meta property="og:title" content="Examples · BufferIO.jl"/><meta property="twitter:title" content="Examples · BufferIO.jl"/><meta name="description" content="Documentation for BufferIO.jl."/><meta property="og:description" content="Documentation for BufferIO.jl."/><meta property="twitter:description" content="Documentation for BufferIO.jl."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BufferIO.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">BufferIO</a></li><li><a class="tocitem" href="../readers/">Readers</a></li><li><a class="tocitem" href="../writers/">Writers</a></li><li><a class="tocitem" href="../types/">Types</a></li><li><a class="tocitem" href="../reference/">API reference</a></li><li class="is-active"><a class="tocitem" href>Examples</a><ul class="internal"><li><a class="tocitem" href="#Example-use-of-BufferIO"><span>Example use of BufferIO</span></a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Examples</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Examples</a></li></ul></nav><div class="docs-right"><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h2 id="Example-use-of-BufferIO"><a class="docs-heading-anchor" href="#Example-use-of-BufferIO">Example use of BufferIO</a><a id="Example-use-of-BufferIO-1"></a><a class="docs-heading-anchor-permalink" href="#Example-use-of-BufferIO" title="Permalink"></a></h2><h3 id="Examples-in-the-wild"><a class="docs-heading-anchor" href="#Examples-in-the-wild">Examples in the wild</a><a id="Examples-in-the-wild-1"></a><a class="docs-heading-anchor-permalink" href="#Examples-in-the-wild" title="Permalink"></a></h3><p>At the time of writing, BufferIO is a brand-new package with limited usage in the Julia ecosystem.</p><p>So far, the users of BufferIO are:</p><ul><li><a href="https://github.com/BioJulia/BGZFLib.jl">BGZFLib.jl</a></li></ul><h3 id="Reader-example"><a class="docs-heading-anchor" href="#Reader-example">Reader example</a><a id="Reader-example-1"></a><a class="docs-heading-anchor-permalink" href="#Reader-example" title="Permalink"></a></h3><p>For bulk I/O operations, there is often not much practical difference between <code>Base.IO</code> and the BufferIO interfaces - except somewhat more precise semantics of the latter.</p><p>Where BufferIO really shines are when you need to read and parse at the same time. For example, suppose you need to read a non-negative decimal number from an io object. You need to figure out where the number ends, <em>before</em> reading it, lest you read too many bytes. With a <code>Base.IO</code> type, your choices are:</p><ol><li>Read one byte at a time, which is inefficient</li><li>Implement your own buffering layer, and load data into the buffer, then read the number from the buffer.</li></ol><p>The latter is essentially an ad-hoc implementation of a BufferIO-like interface. This is what packages like FASTX.jl, XAM.jl and other parsing packages do.</p><p>Below is an implementation of how to do it using BufferIO.</p><pre><code class="language-julia hljs">using BufferIO, StringViews, MemoryViews
+
+is_decimal(x::UInt8) = in(x, UInt8(&#39;0&#39;):UInt8(&#39;9&#39;))
+
+function read_decimal_number(io::AbstractBufReader)::Union{Int, Nothing}
+    scan_from = 1
+    buffer = get_buffer(io)
+    local non_digit_pos
+    # Keep expanding buffer until we reach EOF, or find the first non-digit
+    while true
+        non_digit_pos = findnext(!is_decimal, buffer, scan_from)
+        if isnothing(non_digit_pos)
+            # Next iteration, do not re-scan the same bytes to find end of number
+            scan_from = length(buffer) + 1
+            n_filled = fill_buffer(io)
+            # `nothing` means buffer could not grow. Many subtypes of `AbstractBufReader`
+            # will never return this, in which case this error branch is compiled away
+            isnothing(n_filled) &amp;&amp; throw(IOError(IOErrorKinds.BufferTooShort))
+            # This indicates EOF, so we attempt to parse the rest of the line
+            if iszero(n_filled)
+                non_digit_pos = lastindex(buffer) + 1
+                break
+            end
+            buffer = get_buffer(io)
+            # Check `fill_buffer` was implemented correctly
+            @assert length(buffer) ≥ scan_from
+        else
+            break
+        end
+    end
+    # If no digit was found, do not attempt to parse
+    non_digit_pos == 1 &amp;&amp; return nothing
+    # Rely on existing Base parsing functionality to throw e.g. overflow
+    # errors. Since this is validated data of a known type, a custom implementation
+    # could be much faster.
+    digit = parse(Int, StringView(buffer[1:non_digit_pos - 1]))
+    consume(io, non_digit_pos - 1)
+    return digit
+end</code></pre><h3 id="Writer-example"><a class="docs-heading-anchor" href="#Writer-example">Writer example</a><a id="Writer-example-1"></a><a class="docs-heading-anchor-permalink" href="#Writer-example" title="Permalink"></a></h3><p>Similar to the above example, where BufferIO&#39;s principle of <em>the buffer is the interface</em> enabled integrating reading and parsing for a more efficient API, BufferIO&#39;s writer shine when you can write data directly into a buffer without any intermediate allocations.</p><p>For example, currently, writing a number to an <code>IOBuffer</code> allocates. This is because the number is first heap-allocated, and then data from the heap is copied into the io. In contrast, BufferIO provides the the a buffer to write into directly.</p><pre><code class="language-julia hljs">using BufferIO, MemoryViews
+
+# Constrain the signature to types of a known binary layout which we can copy
+# directly using a pointer
+const BitInteger = Union{Int, UInt...}
+
+function write(io::AbstractBufWriter, n::BitInteger)
+    buffer = get_buffer(io)
+    while length(buffer) &lt; sizeof(n)
+        n_filled = grow_buffer(io)
+        iszero(n_filled) &amp;&amp; throw(IOError(IOErrorKinds.BufferTooShort))
+        buffer = get_buffer(io)
+    end
+    GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
+    consume(io, sizeof(n))
+    return sizeof(n)
+end</code></pre><p>For types that implement the two-arg method of <code>get_nonempty_buffer</code>, </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../reference/">« API reference</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Sunday 14 December 2025 15:23">Sunday 14 December 2025</span>. Using Julia version 1.12.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
