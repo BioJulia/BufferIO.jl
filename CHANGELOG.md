@@ -1,5 +1,10 @@
 # Unreleased
+
+# 0.2.3
+* Add function `relative_seek`
 * Add `write_repeated`
+* Expand documentation of `line_views`, and make stronger promises about its
+  semantics.
 
 # 0.2.2
 * Add method `line_views(::MemoryView{UInt8})`
