@@ -57,9 +57,5 @@ Base.write(
     }
 ) = write(x.x, y)
 
-# Print methods
-Base.print(x::IOWriter, args...) = print(x.x, args...)
-Base.println(x::IOWriter, args...) = println(x.x, args...)
-
 # Other methods
 Base.seek(x::IOWriter, n::Integer) = (seek(x.x, n); x)
