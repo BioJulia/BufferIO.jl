@@ -1,4 +1,7 @@
-# Unreleased
+# 0.3.0
+## Breaking changes
+* When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line, an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError` was thrown.
+
 # 0.2.8
 * `BufferIO.Testing.BoundedReader` now moves its buffer to new memory on every call to
   `fill_buffer`, `consume` and `close`, and overwrites the old memory by flipping its bits
