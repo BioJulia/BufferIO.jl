@@ -83,7 +83,12 @@ end
     # Buffer too short - does not work
     rdr = BoundedReader("abcd\nefg\r\n", 4)
     it = line_views(rdr; chomp = false)
-    @test_throws ArgumentError iterate(it)
+    @test_throws IOError iterate(it)
+    try
+        iterate(it)
+    catch e
+        @test e.kind === IOErrorKinds.BufferTooShort
+    end
 end
 
 @testset "eachline basic functionality" begin
