@@ -47,4 +47,5 @@ In the unlikely case someone wants to create a type which is both, you can creat
   Fortunately, the allocation is small since string need not be copied, but can share storage with the `Memory`.
 
 #### Julia compiler limitation
-This package makes heavy use of union-typed return values. These currently [have no ABI support in Julia](https://github.com/JuliaLang/julia/issues/53584), which makes this package significantly less efficient. That limitation will almost certainly be lifted in a future release of Julia.
+This package makes heavy use of pointer-ful union-typed return values.
+ABI support for these [will be added in Julia 1.14](https://github.com/JuliaLang/julia/pull/55045), so use of this package may incur additional allocations on earlier Julia versions.
