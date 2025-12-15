@@ -53,7 +53,8 @@ or the remainder of the data in `io` if no `\\n` byte was found.
 If the input is empty, this iterator is also empty.
 
 If `x` had a limited buffer size, and cannot grow its buffer,
-and an entire line cannot be kept in the buffer, an `ArgumentError` is thrown.
+and an entire line cannot be kept in the buffer, an `IOError` is thrown,
+with its kind being `IOErrorKinds.BufferTooShort`.
 
 The resulting iterator will NOT close `x` when exhausted, this must be handled elsewhere.
 
@@ -61,7 +62,7 @@ The resulting iterator will NOT close `x` when exhausted, this must be handled e
 The resulting iterator `itr::LineViewIterator`'s state is guaranteed, public interface:
 
 * `iterate(itr)` is equivalent to `iterate(itr, 0)`
-* `iterate(itr, n::Int)` is equivalent to `consume(x, n); iterate(itr)`
+* `iterate(itr, n::Int)` is equivalent to `consume(itr.reader, n); iterate(itr)`
 * The state returned by `iterate` is an `Int` equal to the length of the line
   emitted, plus the number of stripped `\\r\\n` or `\\n` bytes, if `chomp`.
 
@@ -91,7 +92,7 @@ function Base.iterate(x::LineViewIterator, state::Int = 0)
 
     pos = buffer_until(x.reader, 0x0a)
     if pos isa HitBufferLimit
-        throw(ArgumentError("Buffer too short to buffer a whole line, and cannot be expanded."))
+        throw(IOError(IOErrorKinds.BufferTooShort))
     elseif pos === nothing
         # No more newlines until EOF. Close as we reached EOF
         buffer = get_buffer(x.reader)
