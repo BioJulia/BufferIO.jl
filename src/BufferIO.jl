@@ -136,7 +136,7 @@ function Base.showerror(io::IO, err::IOError)
     str = if kind === IOErrorKinds.ConsumeBufferError
         "Called `consume` with a negative amount, or larger than available buffer size"
     elseif kind === IOErrorKinds.BadSeek
-        "Invalid seek, possible out of range"
+        "Invalid seek, possibly seek out of bounds"
     elseif kind === IOErrorKinds.EOF
         "End of file"
     elseif kind === IOErrorKinds.BufferTooShort
@@ -458,7 +458,6 @@ const PLAIN_TYPES = (
 )
 
 const PlainTypes = Union{PLAIN_TYPES...}
-const PlainMemory = Union{map(T -> MemoryView{T}, PLAIN_TYPES)...}
 
 """
     get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}

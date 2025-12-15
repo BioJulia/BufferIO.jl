@@ -12,6 +12,10 @@ end
     include("generic_writer.jl")
 end
 
+@testset "Errors" begin
+    include("errors.jl")
+end
+
 @testset "BufReader" begin
     include("bufreader.jl")
 end
