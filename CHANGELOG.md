@@ -1,5 +1,9 @@
 # Unreleased
 
+# 0.3.0
+## Breaking changes
+* When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line, an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError` was thrown.
+
 # 0.2.4
 * Bugfix: Remove erroneous print method
 * Various optimisations
