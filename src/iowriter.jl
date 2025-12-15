@@ -45,6 +45,7 @@ Base.write(x::IOWriter, data::StridedArray) = write(x.x, data)
 Base.write(x::IOWriter, data::Char) = write(x.x, data)
 Base.write(x::IOWriter, data::Base.CodeUnits) = write(x.x, data.s)
 Base.write(x::IOWriter, x1, x2, xs...) = write(x.x, x1, x2, xs...)
+Base.unsafe_write(io::IOWriter, p::Ptr{UInt8}, n::UInt) = unsafe_write(io.x, p, n)
 
 Base.write(
     x::IOWriter, y::Union{

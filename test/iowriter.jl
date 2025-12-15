@@ -230,6 +230,38 @@ end
     @test filesize(io_writer) == 13  # Filesize doesn't include buffered data
 end
 
+@testset "IOWriter printing" begin
+    vec_writer = VecWriter()
+    io_writer = IOWriter(vec_writer)
+
+    print(io_writer, 123)
+    println(io_writer, "Hello, ", "world!")
+
+    @test String(vec_writer.vec) == "123Hello, world!\n"
+end
+
+@testset "Unsafe write" begin
+    vec_writer = VecWriter()
+    io_writer = IOWriter(vec_writer)
+    io = IOBuffer()
+
+    for i in Any[
+            "abc",
+            "defg",
+            [1, 2],
+            [0x01, 0x07, 0x03],
+        ]
+        GC.@preserve i begin
+            ptr = Ptr{UInt8}(pointer(i))
+            n = UInt(sizeof(i))
+            unsafe_write(io_writer, ptr, n)
+            unsafe_write(io, ptr, n)
+        end
+    end
+
+    @test take!(io) == vec_writer.vec
+end
+
 @testset "IOWriter edge cases" begin
     # Test writing empty data
     vec_writer = VecWriter()
