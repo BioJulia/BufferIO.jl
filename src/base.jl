@@ -412,6 +412,8 @@ function Base.write(io::AbstractBufWriter, x::UInt8)
     return 1
 end
 
+Base.write(io::AbstractBufWriter, x::Bool) = write(io, reinterpret(UInt8, x))
+
 # N.B: At least two args to prevent a stackoverflow.
 function Base.write(io::AbstractBufWriter, x1, x2, xs...)
     n_written = write(io, x1)
@@ -435,16 +437,28 @@ function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, m
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)
+    # The bet here is that in 99% of cases, x will fit in the buffer on the first try.
+    # so if we outline get grow_buffer code, which usually is more complex than get_buffer,
+    # write itself will inline better
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
-    buflen = length(buffer)
-    # Grow buffer to sizeof(x) to enable the fast path, if possible
-    while buflen < sizeof(x)
+    length(buffer) < sizeof(x) && return _write_grow_buffer(io, x, length(buffer))
+    return @inline _copy_bits(io, buffer, x)
+end
+
+@noinline function _write_grow_buffer(io::AbstractBufWriter, x::PlainTypes, bufferlen::Int)
+    while true
         grow_buffer(io)
-        buffer = get_buffer(io)
-        length(buffer) ≤ buflen && return _write_slowpath(io, x)
-        buflen = length(buffer)
+        buffer = get_buffer(io)::MutableMemoryView{UInt8}
+        # If the buffer does not grow, we go to the real slow path where x is written
+        # one byte at a time
+        length(buffer) ≤ bufferlen && return _write_slowpath(io, x)
+        bufferlen = length(buffer)
+        length(buffer) ≥ sizeof(x) && return _copy_bits(io, buffer, x)
     end
-    # Copy the bits in directly
+    error("unreachable")
+end
+
+@inline function _copy_bits(io::AbstractBufWriter, buffer::MutableMemoryView{UInt8}, x::PlainTypes)
     GC.@preserve buffer begin
         p = Ptr{typeof(x)}(pointer(buffer))
         unsafe_store!(p, x)
