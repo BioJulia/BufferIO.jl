@@ -1,5 +1,9 @@
 # Unreleased
 
+# 0.3.0
+## Breaking changes
+* When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line, an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError` was thrown.
+
 # 0.2.3
 * Add function `relative_seek`
 * Add `write_repeated`
