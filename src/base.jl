@@ -64,6 +64,14 @@ function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
 end
 
 function Base.unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
+    buffer = get_buffer(x)
+    (length(buffer) % UInt) < n && return _unsafe_read(x, p, n)
+    GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), n)
+    @inbounds consume(x, n % Int)
+    return n % Int
+end
+
+@noinline function _unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
     p_start = p
     while p < (p_start + n)
         buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
@@ -98,13 +106,15 @@ Get the next `UInt8` in `io`, without advancing `io`, or throw an `IOError`
 containing `IOErrorKinds.EOF` if `io` is EOF.
 """
 function Base.peek(x::AbstractBufReader, ::Type{UInt8})
-    # Using `get_nonempty_buffer` is slightly less efficient here
     buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
-    if isempty(buffer)
-        fill_buffer(x)
-        buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
-        isempty(buffer) && throw(IOError(IOErrorKinds.EOF))
-    end
+    isempty(buffer) && return _peek_empty(x, UInt8)
+    return @inbounds buffer[1]
+end
+
+@noinline function _peek_empty(x::AbstractBufReader, ::Type{UInt8})
+    fill_buffer(x)
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    isempty(buffer) && throw(IOError(IOErrorKinds.EOF))
     return @inbounds buffer[1]
 end
 
@@ -391,7 +401,7 @@ end
 
 function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
-    return if length(buffer) ≥ n_bytes
+    return if (length(buffer) % UInt) ≥ n_bytes
         GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, n_bytes)
         @inbounds consume(io, n_bytes % Int)
         n_bytes % Int
