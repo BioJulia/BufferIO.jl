@@ -385,3 +385,19 @@ The stream position does account for buffered (consumed, but unflushed) bytes, a
 After calling `flush`, `position` must be in `0:filesize(io)`, if `filesize` is defined.
 """
 Base.position(io::BufWriter) = position(io.io) + io.consumed
+
+# This specialized method is used whenever `n_bytes` is longer than the remaining room in `io`.
+@noinline function _unsafe_write(io::BufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
+    shallow_flush(io)
+
+    # If we fill the buffer up completely, or we can't fit the write in the buffer,
+    # we write to the underlying IO directly, bypassing the buffer.
+    buffer = get_buffer(io)
+    if n_bytes ≥ length(buffer)
+        unsafe_write(io.io, ptr, n_bytes)
+    else
+        GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, n_bytes)
+        @inbounds consume(io, n_bytes % Int)
+    end
+    return n_bytes % Int
+end

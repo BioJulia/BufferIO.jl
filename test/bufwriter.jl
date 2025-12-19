@@ -147,6 +147,16 @@ end
     flush(writer)
     seekstart(io)
     @test read(io, String) == data
+
+    # A write too large to fit in buffer, but too small to
+    # cause the BufWriter to skip the buffer altogether.
+    io = IOBuffer()
+    writer = BufWriter(io, 7)
+    write(writer, "John") # write to buffer
+    write(writer, " the ") # flush, then write to buffer
+    write(writer, "baptist") # flush, then write to io directly
+    flush(writer)
+    @test String(take!(io)) == "John the baptist"
 end
 
 @testset "get_nonempty_buffer" begin
