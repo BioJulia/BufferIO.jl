@@ -389,7 +389,18 @@ function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
     end
 end
 
-function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
+function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    return if length(buffer) ≥ n_bytes
+        GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, n_bytes)
+        @inbounds consume(io, n_bytes % Int)
+        n_bytes % Int
+    else
+        _unsafe_write(io, ptr, n_bytes)
+    end
+end
+
+@noinline function _unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
     remaining = n_bytes
     while !iszero(remaining)
         buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
