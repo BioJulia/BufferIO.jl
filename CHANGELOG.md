@@ -1,5 +1,9 @@
 # Unreleased
 
+# 0.2.4
+* Bugfix: Remove erroneous print method
+* Various optimisations
+
 # 0.2.3
 * Add function `relative_seek`
 * Add `write_repeated`

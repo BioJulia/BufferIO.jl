@@ -1,6 +1,6 @@
 name = "BufferIO"
 uuid = "ff366017-094f-4144-bd70-a828a0d67152"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Jakob Nybo Nissen <jakobnybonissen@gmail.com>"]
 
 [deps]
