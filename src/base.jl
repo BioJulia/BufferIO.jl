@@ -429,7 +429,11 @@ function Base.write(io::AbstractBufWriter, maybe_mem)
 end
 
 function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
-    return write(io, codeunits(s))
+    # TODO: In the future, we may want to simply forward to write(io, codeunits(s))
+    # However, currently this would force the allocation of a new Memory object sharing
+    # memory with `s`, so we can choose the more optimised route by using unsafe call instead.
+    # We can change this if `ImmutableMemoryView(s)` no longer allocates in the future.
+    return unsafe_write(io, s, sizeof(s) % UInt)
 end
 
 function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, mem)
