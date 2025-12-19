@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Writers · BufferIO.jl</title><meta name="title" content="Writers · BufferIO.jl"/><meta property="og:title" content="Writers · BufferIO.jl"/><meta property="twitter:title" content="Writers · BufferIO.jl"/><meta name="description" content="Documentation for BufferIO.jl."/><meta property="og:description" content="Documentation for BufferIO.jl."/><meta property="twitter:description" content="Documentation for BufferIO.jl."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BufferIO.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">BufferIO</a></li><li><a class="tocitem" href="../readers/">Readers</a></li><li class="is-active"><a class="tocitem" href>Writers</a><ul class="internal"><li><a class="tocitem" href="#Core,-low-level-interface"><span>Core, low-level interface</span></a></li><li><a class="tocitem" href="#Notable-AbstractWriter-functions"><span>Notable <code>AbstractWriter</code> functions</span></a></li></ul></li><li><a class="tocitem" href="../types/">Types</a></li><li><a class="tocitem" href="../reference/">API reference</a></li><li><a class="tocitem" href="../examples/">Examples</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Writers</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Writers</a></li></ul></nav><div class="docs-right"><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="AbstractBufWriter"><a class="docs-heading-anchor" href="#AbstractBufWriter"><code>AbstractBufWriter</code></a><a id="AbstractBufWriter-1"></a><a class="docs-heading-anchor-permalink" href="#AbstractBufWriter" title="Permalink"></a></h1><h2 id="Core,-low-level-interface"><a class="docs-heading-anchor" href="#Core,-low-level-interface">Core, low-level interface</a><a id="Core,-low-level-interface-1"></a><a class="docs-heading-anchor-permalink" href="#Core,-low-level-interface" title="Permalink"></a></h2><p>Similar to <code>AbstractBufReader</code>, the core interface of <code>AbstractBufWriter</code> consists of three functions:</p><ul><li><code>get_buffer(io)</code> returns a mutable view into the part of the buffer which is not yet used. Data is written to <code>io</code> by copying to the first bytes of the buffer, then calling <code>consume</code>.</li><li><code>grow_buffer(io)</code> request to expand the buffer returned by future calls to <code>get_buffer</code>. This may happen by flushing data in the buffer or by reallocating a larger buffer</li><li><code>consume(io, n::Int)</code> signals that the first <code>n</code> bytes in the buffer are written to <code>io</code>, and will therefore not be returned from future calls to <code>get_buffer</code>.</li></ul><h3 id="Example:-Writing-v::Vector{UInt8}-to-an-AbstractBufWriter"><a class="docs-heading-anchor" href="#Example:-Writing-v::Vector{UInt8}-to-an-AbstractBufWriter">Example: Writing <code>v::Vector{UInt8}</code> to an <code>AbstractBufWriter</code></a><a id="Example:-Writing-v::Vector{UInt8}-to-an-AbstractBufWriter-1"></a><a class="docs-heading-anchor-permalink" href="#Example:-Writing-v::Vector{UInt8}-to-an-AbstractBufWriter" title="Permalink"></a></h3><p>The method <code>write(::AbstractBufWriter, v::Vector{UInt8})</code> is already implemented, but it&#39;s illustrative to see how this be implemented in terms of the core primitives above.</p><p>First, let&#39;s define it in terms of <code>ImmutableMemoryView</code>, and then forward the <code>Vector</code> method to the memory one.</p><pre><code class="language-julia hljs">using MemoryViews
+
+# Forward the vector method to a memory view method
+my_write(io::AbstractBufWriter, v::Vector{UInt8}) = my_write(io, ImmutableMemoryView(v))
+
+function my_write(io::AbstractBufWriter, mem::ImmutableMemoryView{UInt8})::Int
+    n_bytes = length(mem)
+    while !isempty(mem)
+        # Get mutable buffer with uninitialized data to write to
+        buffer = get_buffer(io)::MutableMemoryView{UInt8}
+        if isempty(buffer)
+            # grow_buffer cannot return `nothing`, unlike for readers, but the writer
+            # may still be unable to add more bytes (in which case grow_buffer returns
+            # zero). A real implementation would use a better error
+            iszero(grow_buffer(io)) &amp;&amp; error(&quot;Could not flush&quot;)
+            buffer = get_buffer(io)::MutableMemoryView{UInt8}
+        end
+        mn = min(length(mem), length(buffer))
+        # This would indicate an error in the implementation of `grow_buffer`.
+        # As it did not return zero, the buffer must have grown.
+        @assert !iszero(mn)
+        (to_write, mem) = split_at(mem, mn + 1)
+        copyto!(buffer[1:mn], to_write)
+        # Mark the first `mn` bytes of the buffer as being committed, thereby
+        # actually writing it to `io`
+        consume(io, mn)
+    end
+    return n_bytes
+end</code></pre><article><details class="docstring" open="true"><summary id="BufferIO.get_buffer-writers"><a class="docstring-binding" href="#BufferIO.get_buffer-writers"><code>BufferIO.get_buffer</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}</code></pre><p>Get the available bytes of <code>io</code>.</p><p>Calling this function, even when the buffer is empty, should never do actual system I/O, and in particular should not attempt to fill the buffer. To fill the buffer, call <a href="../reference/#BufferIO.fill_buffer"><code>fill_buffer</code></a>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abcdefghij&quot;), 5);
+
+julia&gt; get_buffer(reader) |&gt; isempty
+true
+
+julia&gt; fill_buffer(reader)
+5
+
+julia&gt; get_buffer(reader) |&gt; println
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65]</code></pre></div></section><section><div><pre><code class="language-julia hljs">get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}</code></pre><p>Get the available mutable buffer of <code>io</code> that can be written to.</p><p>Calling this function should never do actual system I/O, and in particular should not attempt to flush data from the buffer or grow the buffer. To increase the size of the buffer, call <a href="../reference/#BufferIO.grow_buffer-Tuple{BufWriter}"><code>grow_buffer</code></a>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; writer = BufWriter(IOBuffer(), 5);
+
+julia&gt; buffer = get_buffer(writer);
+
+julia&gt; (typeof(buffer), length(buffer))
+(MutableMemoryView{UInt8}, 5)
+
+julia&gt; write(writer, &quot;abcde&quot;)
+5
+
+julia&gt; get_buffer(writer) |&gt; isempty
+true
+
+julia&gt; flush(writer)
+
+julia&gt; buffer = get_buffer(writer); length(buffer)
+5</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.grow_buffer-writers"><a class="docstring-binding" href="#BufferIO.grow_buffer-writers"><code>BufferIO.grow_buffer</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">grow_buffer(io::AbstractBufWriter)::Int</code></pre><p>Increase the amount of bytes in the writeable buffer of <code>io</code> if possible, returning the number of bytes added. After calling <code>grow_buffer</code> and getting <code>n</code>, the buffer obtained by <code>get_buffer</code> should have <code>n</code> more bytes.</p><p>The buffer is usually grown by flushing the buffer, expanding or reallocating the buffer. If none of these can grow the buffer, return zero.</p><div class="admonition is-info" id="Note-e992f549f881f755"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-e992f549f881f755" title="Permalink"></a></header><div class="admonition-body"><p>Idiomatically, users should not call <code>grow_buffer</code> when the buffer is not empty, because doing so forces growing the buffer instead of letting <code>io</code> choose an optimal buffer size. Calling <code>grow_buffer</code> with a nonempty buffer is only appropriate if, for algorithmic reasons you need <code>io</code> buffer to be able to hold some minimum amount of data before flushing.</p></div></div><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; v = VecWriter(undef, 0); get_buffer(v) |&gt; isempty
+true
+
+julia&gt; n_grown = grow_buffer(v); n_grown &gt; 0
+true
+
+julia&gt; length(get_buffer(v)) == n_grown
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.consume-writers"><a class="docstring-binding" href="#BufferIO.consume-writers"><code>BufferIO.consume</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">consume(io::Union{AbstractBufReader, AbstractBufWriter}, n::Int)::Nothing</code></pre><p>Remove the first <code>n</code> bytes of the buffer of <code>io</code>. Consumed bytes will not be returned by future calls to <code>get_buffer</code>.</p><p>If n is negative, or larger than the current buffer size, throw an <code>IOError</code> with <code>ConsumeBufferError</code> kind. This check is a boundscheck and may be elided with <code>@inbounds</code>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcdefghij&quot;);
+
+julia&gt; get_buffer(reader) == b&quot;abcdefghij&quot;
+true
+
+julia&gt; consume(reader, 8); get_buffer(reader) |&gt; println
+UInt8[0x69, 0x6a]
+
+julia&gt; consume(reader, 3) # 2 bytes remaining
+ERROR: Called `consume` with a negative amount, or larger than available buffer size</code></pre></div></section></details></article><h2 id="Notable-AbstractWriter-functions"><a class="docs-heading-anchor" href="#Notable-AbstractWriter-functions">Notable <code>AbstractWriter</code> functions</a><a id="Notable-AbstractWriter-functions-1"></a><a class="docs-heading-anchor-permalink" href="#Notable-AbstractWriter-functions" title="Permalink"></a></h2><article><details class="docstring" open="true"><summary id="BufferIO.get_unflushed-writers"><a class="docstring-binding" href="#BufferIO.get_unflushed-writers"><code>BufferIO.get_unflushed</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">get_unflushed(io::AbstractBufWriter)::MutableMemoryView{UInt8}</code></pre><p>Return a view into the buffered data already written to <code>io</code> and <code>consume</code>d, but not yet flushed to its underlying IO.</p><p>Bytes not appearing in the buffer may not be completely flushed if there are more layers of buffering in the IO wrapped by <code>io</code>. However, any bytes already consumed and not returned in <code>get_unflushed</code> should not be buffered in <code>io</code> itself.</p><p>Mutating the returned buffer is allowed, and should not cause <code>io</code> to malfunction. After mutating the returned buffer and calling <code>flush</code>, values in the updated buffer will be flushed.</p><p>This function has no default implementation and methods are optionally added to subtypes of <code>AbstractBufWriter</code> that can fullfil the above restrictions.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; io = IOBuffer(); writer = BufWriter(io);
+
+julia&gt; isempty(get_unflushed(writer))
+true
+
+julia&gt; write(writer, &quot;abc&quot;); unflushed = get_unflushed(writer);
+
+julia&gt; println(unflushed)
+UInt8[0x61, 0x62, 0x63]
+
+julia&gt; unflushed[2] = UInt8(&#39;x&#39;)
+0x78
+
+julia&gt; flush(writer); take!(io) |&gt; println
+UInt8[0x61, 0x78, 0x63]
+
+julia&gt; get_unflushed(writer) |&gt; isempty
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_nonempty_buffer-Tuple{VecWriter, Int64}-writers"><a class="docstring-binding" href="#BufferIO.get_nonempty_buffer-Tuple{VecWriter, Int64}-writers"><code>BufferIO.get_nonempty_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_nonempty_buffer(
+    io::AbstractBufWriter, min_size::Int
+)::Union{Nothing, MutableMemoryView{UInt8}}</code></pre><p>Get a buffer of at least size <code>max(min_size, 1)</code>, or <code>nothing</code> if that is not possible.</p><p>This method is optionally implemented for subtypes of <code>AbstractBufWriter</code>, and is typically only implemented for types which do not flush their data to an underlying IO, such that there is no memory savings by writing in smaller chunks.</p><div class="admonition is-warning" id="Warning-903937cc0950c1c3"><header class="admonition-header">Warning<a class="admonition-anchor" href="#Warning-903937cc0950c1c3" title="Permalink"></a></header><div class="admonition-body"><p>Use of this method may cause excessive buffering without flushing, which is less memory efficient than calling the one-argument method and flushing in a loop.</p></div></div><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; function write_int_le(writer::AbstractBufWriter, int::Int64)
+           buf = get_nonempty_buffer(writer, sizeof(Int64))::Union{Nothing, MutableMemoryView{UInt8}}
+           isnothing(buf) &amp;&amp; throw(IOError(IOErrorKinds.BufferTooShort))
+           length(buf) &lt; sizeof(Int64) &amp;&amp; error(&quot;Bad implementation of get_nonempty_buffer&quot;)
+           GC.@preserve buf unsafe_store!(Ptr{Int64}(pointer(buf)), htol(int))
+           @inbounds consume(writer, sizeof(Int64))
+           return sizeof(Int64)
+       end;
+
+julia&gt; v = VecWriter(); write_int_le(v, Int64(515))
+8
+
+julia&gt; String(v.vec)
+&quot;\x03\x02\0\0\0\0\0\0&quot;</code></pre></div></section></details></article></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../readers/">« Readers</a><a class="docs-footer-nextpage" href="../types/">Types »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Friday 19 December 2025 11:46">Friday 19 December 2025</span>. Using Julia version 1.12.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
