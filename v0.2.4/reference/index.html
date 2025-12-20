@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>API reference · BufferIO.jl</title><meta name="title" content="API reference · BufferIO.jl"/><meta property="og:title" content="API reference · BufferIO.jl"/><meta property="twitter:title" content="API reference · BufferIO.jl"/><meta name="description" content="Documentation for BufferIO.jl."/><meta property="og:description" content="Documentation for BufferIO.jl."/><meta property="twitter:description" content="Documentation for BufferIO.jl."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BufferIO.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">BufferIO</a></li><li><a class="tocitem" href="../readers/">Readers</a></li><li><a class="tocitem" href="../writers/">Writers</a></li><li><a class="tocitem" href="../types/">Types</a></li><li class="is-active"><a class="tocitem" href>API reference</a></li><li><a class="tocitem" href="../examples/">Examples</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>API reference</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>API reference</a></li></ul></nav><div class="docs-right"><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Reference"><a class="docs-heading-anchor" href="#Reference">Reference</a><a id="Reference-1"></a><a class="docs-heading-anchor-permalink" href="#Reference" title="Permalink"></a></h1><article><details class="docstring" open="true"><summary id="BufferIO.AbstractBufReader"><a class="docstring-binding" href="#BufferIO.AbstractBufReader"><code>BufferIO.AbstractBufReader</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">abstract type AbstractBufReader end</code></pre><p>An <code>AbstractBufReader</code> is a readable IO type that exposes a buffer of readable bytes to the user.</p><div class="admonition is-warning" id="Warning-ad27414468c84881"><header class="admonition-header">Warning<a class="admonition-anchor" href="#Warning-ad27414468c84881" title="Permalink"></a></header><div class="admonition-body"><p>By default, subtypes of <code>AbstractBufReader</code> are <strong>not threadsafe</strong>, so concurrent usage should protect the instance behind a lock.</p></div></div><p><strong>Extended help</strong></p><p>Subtypes of this type should not have a zero-sized buffer which cannot expand when calling <code>fill_buffer</code>.</p><p>Subtypes <code>T</code> of this type should implement at least:</p><ul><li><code>get_buffer(io::T)</code></li><li><code>fill_buffer(io::T)</code></li><li><code>consume(io::T, n::Int)</code></li><li><code>Base.close(io::T)</code></li></ul><p>Subtypes may optionally define the following methods. See their docstring for <code>BufReader</code> / <code>BufWriter</code> for details of the implementation:</p><ul><li><code>Base.seek(io::T, ::Int)</code></li><li><code>relative_seek(io::T, ::Int)</code></li><li><code>Base.filesize(io::T)</code></li><li><code>Base.position(io::T)</code></li><li><code>resize_buffer(io::T, ::Int)</code></li></ul><p><code>AbstractBufReader</code>s have implementations for many Base IO methods, but with more precisely specified semantics than for <code>Base.IO</code>. See docstrings of the specific functions of interest.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.AbstractBufWriter"><a class="docstring-binding" href="#BufferIO.AbstractBufWriter"><code>BufferIO.AbstractBufWriter</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">abstract type AbstractBufWriter end</code></pre><p>An <code>AbstractBufWriter</code> is an IO-like type which exposes mutable memory to the user, which can be written to directly. This can help avoiding intermediate allocations when writing. For example, integers can usually be written to buffered writers without allocating. </p><div class="admonition is-warning" id="Warning-4b2b4cd9da193d3a"><header class="admonition-header">Warning<a class="admonition-anchor" href="#Warning-4b2b4cd9da193d3a" title="Permalink"></a></header><div class="admonition-body"><p>By default, subtypes of <code>AbstractBufWriter</code> are <strong>not threadsafe</strong>, so concurrent usage should protect the instance behind a lock.</p></div></div><p><strong>Extended help</strong></p><p>Subtypes of this type should not have a zero-sized buffer which cannot expand when calling <code>grow_buffer</code>.</p><p>Subtypes <code>T</code> of this type should implement at least:</p><ul><li><code>get_buffer(io::T)</code></li><li><code>grow_buffer(io::T)</code></li><li><code>consume(io::T, n::Int)</code></li><li><code>Base.close(io::T)</code></li><li><code>Base.flush(io::T)</code></li></ul><p>They may optionally implement</p><ul><li><code>Base.seek(io::T, ::Int)</code></li><li><code>Base.filesize(io::T)</code></li><li><code>Base.position(io::T)</code></li><li><code>get_unflushed(io::T)</code></li><li><code>shallow_flush(io::T)</code></li><li><code>resize_buffer(io::T, ::Int)</code></li><li><code>get_nonempty_buffer(io::T, ::Int)</code></li></ul></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.BufReader"><a class="docstring-binding" href="#BufferIO.BufReader"><code>BufferIO.BufReader</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">BufReader(f, io::IO, [buffer_size::Int])</code></pre><p>Create a <code>BufReader</code> wrapping <code>io</code>, then call <code>f</code> on the <code>BufReader</code>, and close the reader once <code>f</code> is finished or if it errors.</p><p>This pattern is useful for automatically cleaning up the resource of <code>io</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; io = IOBuffer(&quot;hello world&quot;);
+
+julia&gt; BufReader(io) do reader
+           println(String(read(io, 5)))
+       end
+hello
+
+julia&gt; read(io) # closing reader closes io also
+ERROR: ArgumentError: read failed, IOBuffer is not readable
+[...]</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.BufReader"><a class="docstring-binding" href="#BufferIO.BufReader"><code>BufferIO.BufReader</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">BufReader{T &lt;: IO} &lt;: AbstractBufReader
+BufReader(io::IO, [buffer_size::Int])::BufReader</code></pre><p>Wrap an <code>IO</code> in a struct with a new buffer, giving it the <code>AbstractBufReader</code> interface.</p><p>The <code>BufReader</code> has an infinitely growable buffer, and will only grow the buffer if <a href="#BufferIO.fill_buffer"><code>fill_buffer</code></a> is called while its internal buffer is full.</p><p>Throw an <code>ArgumentError</code> if <code>buffer_size</code> is less than 1.</p><pre><code class="language-julia-repl hljs">julia&gt; rdr = BufReader(IOBuffer(&quot;Hello, world!\nabc\r\ndef&quot;));
+
+julia&gt; get_buffer(rdr) |&gt; isempty
+true
+
+julia&gt; peek(rdr)
+0x48
+
+julia&gt; readline(rdr)
+&quot;Hello, world!&quot;
+
+julia&gt; String(readavailable(rdr))
+&quot;abc\r\ndef&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.BufWriter"><a class="docstring-binding" href="#BufferIO.BufWriter"><code>BufferIO.BufWriter</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">BufWriter(f, io::IO, [buffer_size::Int])</code></pre><p>Create a <code>BufWriter</code> wrapping <code>io</code>, then call <code>f</code> on the <code>BufWriter</code>, and close the writer once <code>f</code> is finished or if it errors.</p><p>This pattern is useful for automatically cleaning up the resource of <code>io</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; io = IOBuffer();
+
+julia&gt; BufWriter(io) do writer
+           write(writer, &quot;hello, world!&quot;)
+           shallow_flush(writer)
+           seekstart(io)
+           println(String(read(io)))
+       end
+hello, world!
+
+julia&gt; iswritable(io) # closing reader closes io also
+false</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.BufWriter"><a class="docstring-binding" href="#BufferIO.BufWriter"><code>BufferIO.BufWriter</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">BufWriter{T &lt;: IO} &lt;: AbstractBufWriter
+BufWriter(io::IO, [buffer_size::Int])::BufWriter</code></pre><p>Wrap an <code>IO</code> in a struct with a new buffer, giving it the <code>AbstractBufWriter</code> interface.</p><p>The <code>BufWriter</code> has an infinitely growable buffer, and will only expand the buffer if <code>grow_buffer</code> is called on it while it does not contain any data (as shown by <code>get_unflushed</code>).</p><p>Throw an <code>ArgumentError</code> if <code>buffer_size</code> is &lt; 1.</p><pre><code class="language-julia-repl hljs">julia&gt; io = IOBuffer(); wtr = BufWriter(io);
+
+julia&gt; print(wtr, &quot;Hello!&quot;)
+
+julia&gt; write(wtr, [0x1234, 0x5678])
+4
+
+julia&gt; isempty(read(io)) # wtr not flushed
+true
+
+julia&gt; flush(wtr); seekstart(io); String(read(io))
+&quot;Hello!4\x12xV&quot;
+
+julia&gt; isempty(get_unflushed(wtr))
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.ByteVector"><a class="docstring-binding" href="#BufferIO.ByteVector"><code>BufferIO.ByteVector</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">ByteVector &lt;: DenseVector{UInt8}</code></pre><p>A re-implementation of <code>Vector{UInt8}</code> that only supports a subset of its methods. In future minor releases, this may change to be an alias of <code>Vector{UInt8}</code>.</p><p>Note that <code>String(x::ByteVector)</code> will truncate <code>x</code>, to mirror the behaviour of <code>String(::Vector{UInt8})</code>. It is recommended to use <code>takestring!</code> instead.</p><p>All Base methods implemented for <code>ByteVector</code> is guaranteed to have the same semantics as those for <code>Vector</code>. Futhermore, <code>ByteVector</code> supports:</p><ul><li><code>takestring!(::ByteVector)</code> even on Julia &lt; 1.13, whereas <code>takestring!(::Vector{UInt8})</code> is only defined from Julia 1.13 onwards.</li></ul></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.CursorReader"><a class="docstring-binding" href="#BufferIO.CursorReader"><code>BufferIO.CursorReader</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">CursorReader(x) &lt;: AbstractBufReader</code></pre><p>A seekable, stateful reader of the content of any object <code>x</code> which implements <code>MemoryView(x)::MemoryView{UInt8}</code>.</p><p>Closing it does nothing.</p><pre><code class="language-julia-repl hljs">julia&gt; rdr = CursorReader(&quot;some\ncontent\nhere&quot;);
+
+julia&gt; readline(rdr)
+&quot;some&quot;
+
+julia&gt; read(rdr, String)
+&quot;content\nhere&quot;
+
+julia&gt; seek(rdr, 8);
+
+julia&gt; read(rdr, String)
+&quot;tent\nhere&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.IOError"><a class="docstring-binding" href="#BufferIO.IOError"><code>BufferIO.IOError</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">IOError</code></pre><p>This type is thrown by errors of AbstractBufReader. They contain the <code>.kind::IOErrorKind</code> public property.</p><p>See also: <a href="#BufferIO.IOErrorKinds.IOErrorKind"><code>IOErrorKinds.IOErrorKind</code></a></p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; rdr = CursorReader(&quot;some content&quot;);
+
+julia&gt; try
+           seek(rdr, 500)
+       catch error
+           if error.kind == IOErrorKinds.BadSeek
+               println(stderr, &quot;Seeking operation out of bounds&quot;)
+           else
+               rethrow()
+           end
+        end
+Seeking operation out of bounds</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.IOReader"><a class="docstring-binding" href="#BufferIO.IOReader"><code>BufferIO.IOReader</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">IOReader{T &lt;: AbstractBufReader} &lt;: IO</code></pre><p>Wrapper type to convert an <code>AbstractBufReader</code> to an <code>IO</code>.</p><p><code>IOReader</code>s implement the same part of the <code>IO</code> interface as <code>AbstractBufReader</code>, so this type is only used to satisfy type constraints.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; io = CursorReader(&quot;hello&quot;);
+
+julia&gt; f(x::IO) = String(read(x));
+
+julia&gt; f(io)
+ERROR: MethodError: no method matching f(::CursorReader)
+[...]
+
+julia&gt; f(IOReader(io))
+&quot;hello&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.IOWriter"><a class="docstring-binding" href="#BufferIO.IOWriter"><code>BufferIO.IOWriter</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">IOWriter{T &lt;: AbstractBufWriter} &lt;: IO</code></pre><p>Wrapper type to convert an <code>AbstractBufWriter</code> to an <code>IO</code>.</p><p><code>IOWriter</code>s implement the same part of the <code>IO</code> interface as <code>AbstractBufWriter</code>, so this type is only used to satisfy type constraints.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; io = VecWriter();
+
+julia&gt; f(x::IO) = write(x, &quot;hello&quot;);
+
+julia&gt; f(io)
+ERROR: MethodError: no method matching f(::VecWriter)
+[...]
+
+julia&gt; f(IOWriter(io))
+5
+
+julia&gt; String(io.vec)
+&quot;hello&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.LineViewIterator"><a class="docstring-binding" href="#BufferIO.LineViewIterator"><code>BufferIO.LineViewIterator</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">LineViewIterator{T &lt;: AbstractBufReader}</code></pre><p>This iterator is created by <a href="#BufferIO.line_views-Tuple{AbstractBufReader}"><code>line_views(::AbstractBufReader)</code></a>. It is public, but is currently unexported.</p><p>It has two public properties: <code>io.reader</code> obtains its inner <code>AbstractBufReader</code>, and <code>io.chomp::Bool</code> returns whether this iterator strips line endings.</p><p>For semantics of iteration, see documentation of <a href="#BufferIO.line_views-Tuple{AbstractBufReader}"><code>line_views(::AbstractBufReader)</code></a>.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.VecWriter"><a class="docstring-binding" href="#BufferIO.VecWriter"><code>BufferIO.VecWriter</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">VecWriter &lt;: AbstractBufWriter</code></pre><p>A writer backed by a <a href="#BufferIO.ByteVector"><code>ByteVector</code></a>. Read the (public) property <code>.vec</code> to get the vector back.</p><p>This type is useful as an efficient string builder through <code>takestring!(io)</code>.</p><p>Functions <code>flush</code> and <code>close</code> do not affect the writer.</p><p>Mutating <code>io</code> will mutate <code>vec</code> and vice versa. Neither <code>vec</code> nor <code>io</code> will be invalidated by mutating the other, but doing so may affect the implicit (non-semantic) behaviour (e.g. memory reallocations or efficiency) of the other. For example, repeated and interleaved <code>push!(vec)</code> and <code>write(io, x)</code> may be less efficient, if one operation has memory allocation patterns that is suboptimal for the other operation.</p><p>Create with one of the following constructors:</p><ul><li><code>VecWriter([vec::Vector{UInt8}])</code></li><li><code>VecWriter(undef, ::Int)</code></li><li><code>VecWriter(::ByteVector)</code></li></ul><p>Note that, currently, when constructing from a <code>Vector{UInt8}</code>, the vector is invalidated and the <code>VecWriter</code> and its wrapped <code>ByteVector</code> take shared control of the underlying memory. This restriction may be lifted in the future.</p><p>A VecWriter has no notion of <code>filesize</code>, and cannot be <code>seek</code>ed. Instead, resize the underlying vector <code>io.vec</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; vw = VecWriter();
+
+julia&gt; write(vw, &quot;Hello, world!&quot;, 0xe1fa)
+15
+
+julia&gt; append!(vw.vec, b&quot;More data&quot;);
+
+julia&gt; String(vw.vec)
+&quot;Hello, world!\xfa\xe1More data&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.consume"><a class="docstring-binding" href="#BufferIO.consume"><code>BufferIO.consume</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">consume(io::Union{AbstractBufReader, AbstractBufWriter}, n::Int)::Nothing</code></pre><p>Remove the first <code>n</code> bytes of the buffer of <code>io</code>. Consumed bytes will not be returned by future calls to <code>get_buffer</code>.</p><p>If n is negative, or larger than the current buffer size, throw an <code>IOError</code> with <code>ConsumeBufferError</code> kind. This check is a boundscheck and may be elided with <code>@inbounds</code>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcdefghij&quot;);
+
+julia&gt; get_buffer(reader) == b&quot;abcdefghij&quot;
+true
+
+julia&gt; consume(reader, 8); get_buffer(reader) |&gt; println
+UInt8[0x69, 0x6a]
+
+julia&gt; consume(reader, 3) # 2 bytes remaining
+ERROR: Called `consume` with a negative amount, or larger than available buffer size</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.fill_buffer"><a class="docstring-binding" href="#BufferIO.fill_buffer"><code>BufferIO.fill_buffer</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">fill_buffer(io::AbstractBufReader)::Union{Int, Nothing}</code></pre><p>Fill more bytes into the buffer from <code>io</code>&#39;s underlying buffer, returning the number of bytes added. After calling <code>fill_buffer</code> and getting <code>n</code>, the buffer obtained by <code>get_buffer</code> should have <code>n</code> new bytes appended.</p><p>This function must fill at least one byte, except</p><ul><li>If the underlying io is EOF, or there is no underlying io to fill bytes from, return 0</li><li>If the buffer is not empty, and cannot be expanded, return <code>nothing</code>.</li></ul><p>Buffered readers which do not wrap another underlying IO, and therefore can&#39;t fill its buffer should return 0 unconditionally. This function should never return <code>nothing</code> if the buffer is empty.</p><div class="admonition is-info" id="Note-376f9e54afe8b45a"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-376f9e54afe8b45a" title="Permalink"></a></header><div class="admonition-body"><p>Idiomatically, users should not call <code>fill_buffer</code> when the buffer is not empty, because doing so may force growing the buffer instead of letting <code>io</code> choose an optimal buffer size. Calling <code>fill_buffer</code> with a nonempty buffer is only appropriate if, for algorithmic reasons you need <code>io</code> itself to buffer some minimum amount of data.</p></div></div><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcde&quot;);
+
+julia&gt; fill_buffer(reader) # CursorReader can&#39;t fill its buffer
+0
+
+julia&gt; reader = BufReader(IOBuffer(&quot;abcde&quot;), 3);
+
+julia&gt; length(get_buffer(reader)) # buffer of BufReader initially empty
+0
+
+julia&gt; fill_buffer(reader)
+3
+
+julia&gt; length(get_buffer(reader)) # now must be 0 + 3
+3</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_buffer-Tuple{BufReader}"><a class="docstring-binding" href="#BufferIO.get_buffer-Tuple{BufReader}"><code>BufferIO.get_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}</code></pre><p>Get the available bytes of <code>io</code>.</p><p>Calling this function, even when the buffer is empty, should never do actual system I/O, and in particular should not attempt to fill the buffer. To fill the buffer, call <a href="#BufferIO.fill_buffer"><code>fill_buffer</code></a>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abcdefghij&quot;), 5);
+
+julia&gt; get_buffer(reader) |&gt; isempty
+true
+
+julia&gt; fill_buffer(reader)
+5
+
+julia&gt; get_buffer(reader) |&gt; println
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65]</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_buffer-Tuple{BufWriter}"><a class="docstring-binding" href="#BufferIO.get_buffer-Tuple{BufWriter}"><code>BufferIO.get_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}</code></pre><p>Get the available mutable buffer of <code>io</code> that can be written to.</p><p>Calling this function should never do actual system I/O, and in particular should not attempt to flush data from the buffer or grow the buffer. To increase the size of the buffer, call <a href="#BufferIO.grow_buffer-Tuple{BufWriter}"><code>grow_buffer</code></a>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; writer = BufWriter(IOBuffer(), 5);
+
+julia&gt; buffer = get_buffer(writer);
+
+julia&gt; (typeof(buffer), length(buffer))
+(MutableMemoryView{UInt8}, 5)
+
+julia&gt; write(writer, &quot;abcde&quot;)
+5
+
+julia&gt; get_buffer(writer) |&gt; isempty
+true
+
+julia&gt; flush(writer)
+
+julia&gt; buffer = get_buffer(writer); length(buffer)
+5</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_nonempty_buffer-Tuple{AbstractBufReader}"><a class="docstring-binding" href="#BufferIO.get_nonempty_buffer-Tuple{AbstractBufReader}"><code>BufferIO.get_nonempty_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemoryView{UInt8}}</code></pre><p>Get a buffer with at least one byte, if bytes are available. Otherwise, fill the buffer, and return the newly filled buffer. Returns <code>nothing</code> only if <code>x</code> is EOF.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abc&quot;));
+
+julia&gt; get_buffer(reader) |&gt; isempty
+true
+
+julia&gt; get_nonempty_buffer(reader) |&gt; println
+UInt8[0x61, 0x62, 0x63]
+
+julia&gt; consume(reader, 3)
+
+julia&gt; get_nonempty_buffer(reader) === nothing # EOF
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_nonempty_buffer-Tuple{AbstractBufWriter}"><a class="docstring-binding" href="#BufferIO.get_nonempty_buffer-Tuple{AbstractBufWriter}"><code>BufferIO.get_nonempty_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}</code></pre><p>Get a buffer with at least one byte, if bytes are available. Otherwise, call <code>grow_buffer</code>, then get the buffer again. Returns <code>nothing</code> if the buffer is still empty.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_nonempty_buffer-Tuple{VecWriter, Int64}"><a class="docstring-binding" href="#BufferIO.get_nonempty_buffer-Tuple{VecWriter, Int64}"><code>BufferIO.get_nonempty_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_nonempty_buffer(
+    io::AbstractBufWriter, min_size::Int
+)::Union{Nothing, MutableMemoryView{UInt8}}</code></pre><p>Get a buffer of at least size <code>max(min_size, 1)</code>, or <code>nothing</code> if that is not possible.</p><p>This method is optionally implemented for subtypes of <code>AbstractBufWriter</code>, and is typically only implemented for types which do not flush their data to an underlying IO, such that there is no memory savings by writing in smaller chunks.</p><div class="admonition is-warning" id="Warning-903937cc0950c1c3"><header class="admonition-header">Warning<a class="admonition-anchor" href="#Warning-903937cc0950c1c3" title="Permalink"></a></header><div class="admonition-body"><p>Use of this method may cause excessive buffering without flushing, which is less memory efficient than calling the one-argument method and flushing in a loop.</p></div></div><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; function write_int_le(writer::AbstractBufWriter, int::Int64)
+           buf = get_nonempty_buffer(writer, sizeof(Int64))::Union{Nothing, MutableMemoryView{UInt8}}
+           isnothing(buf) &amp;&amp; throw(IOError(IOErrorKinds.BufferTooShort))
+           length(buf) &lt; sizeof(Int64) &amp;&amp; error(&quot;Bad implementation of get_nonempty_buffer&quot;)
+           GC.@preserve buf unsafe_store!(Ptr{Int64}(pointer(buf)), htol(int))
+           @inbounds consume(writer, sizeof(Int64))
+           return sizeof(Int64)
+       end;
+
+julia&gt; v = VecWriter(); write_int_le(v, Int64(515))
+8
+
+julia&gt; String(v.vec)
+&quot;\x03\x02\0\0\0\0\0\0&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.get_unflushed-Tuple{BufWriter}"><a class="docstring-binding" href="#BufferIO.get_unflushed-Tuple{BufWriter}"><code>BufferIO.get_unflushed</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_unflushed(io::AbstractBufWriter)::MutableMemoryView{UInt8}</code></pre><p>Return a view into the buffered data already written to <code>io</code> and <code>consume</code>d, but not yet flushed to its underlying IO.</p><p>Bytes not appearing in the buffer may not be completely flushed if there are more layers of buffering in the IO wrapped by <code>io</code>. However, any bytes already consumed and not returned in <code>get_unflushed</code> should not be buffered in <code>io</code> itself.</p><p>Mutating the returned buffer is allowed, and should not cause <code>io</code> to malfunction. After mutating the returned buffer and calling <code>flush</code>, values in the updated buffer will be flushed.</p><p>This function has no default implementation and methods are optionally added to subtypes of <code>AbstractBufWriter</code> that can fullfil the above restrictions.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; io = IOBuffer(); writer = BufWriter(io);
+
+julia&gt; isempty(get_unflushed(writer))
+true
+
+julia&gt; write(writer, &quot;abc&quot;); unflushed = get_unflushed(writer);
+
+julia&gt; println(unflushed)
+UInt8[0x61, 0x62, 0x63]
+
+julia&gt; unflushed[2] = UInt8(&#39;x&#39;)
+0x78
+
+julia&gt; flush(writer); take!(io) |&gt; println
+UInt8[0x61, 0x78, 0x63]
+
+julia&gt; get_unflushed(writer) |&gt; isempty
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.grow_buffer-Tuple{BufWriter}"><a class="docstring-binding" href="#BufferIO.grow_buffer-Tuple{BufWriter}"><code>BufferIO.grow_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">grow_buffer(io::AbstractBufWriter)::Int</code></pre><p>Increase the amount of bytes in the writeable buffer of <code>io</code> if possible, returning the number of bytes added. After calling <code>grow_buffer</code> and getting <code>n</code>, the buffer obtained by <code>get_buffer</code> should have <code>n</code> more bytes.</p><p>The buffer is usually grown by flushing the buffer, expanding or reallocating the buffer. If none of these can grow the buffer, return zero.</p><div class="admonition is-info" id="Note-e992f549f881f755"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-e992f549f881f755" title="Permalink"></a></header><div class="admonition-body"><p>Idiomatically, users should not call <code>grow_buffer</code> when the buffer is not empty, because doing so forces growing the buffer instead of letting <code>io</code> choose an optimal buffer size. Calling <code>grow_buffer</code> with a nonempty buffer is only appropriate if, for algorithmic reasons you need <code>io</code> buffer to be able to hold some minimum amount of data before flushing.</p></div></div><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; v = VecWriter(undef, 0); get_buffer(v) |&gt; isempty
+true
+
+julia&gt; n_grown = grow_buffer(v); n_grown &gt; 0
+true
+
+julia&gt; length(get_buffer(v)) == n_grown
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.line_views-Tuple{AbstractBufReader}"><a class="docstring-binding" href="#BufferIO.line_views-Tuple{AbstractBufReader}"><code>BufferIO.line_views</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">line_views(x::AbstractBufReader; chomp::Bool=true)::LineViewIterator{typeof(x)}</code></pre><p>Create an iterator of lines of <code>x</code>. The returned views are <code>ImmutableMemoryView{UInt8}</code> into <code>x</code>&#39;s buffer. Use the package StringViews.jl to turn the lines into <code>AbstractString</code>s.</p><p>The views may be invalidated when mutating <code>x</code>, which may happen on subsequent iterations of the iterator. See extended help for more precise semantics.</p><p>The <code>chomp</code> keyword (default: <code>true</code>), controls whether any trailing <code>\r\n</code> or <code>\n</code> bytes should be removed from the output.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; lines = line_views(CursorReader(&quot;abc\r\ndef\n\r\ngh&quot;));
+
+julia&gt; first(lines) |&gt; String
+&quot;abc&quot;
+
+julia&gt; first(lines) == b&quot;abc&quot;
+true
+
+julia&gt; first(iterate(lines, 9)) |&gt; String
+&quot;&quot;
+
+julia&gt; sum(length, lines)
+2
+
+julia&gt; isempty(lines)
+true</code></pre><p><strong>Extended help</strong></p><p>A line is defined as all data up to and including <code>\n</code> (0x0a) or <code>\r\n</code> (0x0d 0x0a), or the remainder of the data in <code>io</code> if no <code>\n</code> byte was found. If the input is empty, this iterator is also empty.</p><p>If <code>x</code> had a limited buffer size, and cannot grow its buffer, and an entire line cannot be kept in the buffer, an <code>ArgumentError</code> is thrown.</p><p>The resulting iterator will NOT close <code>x</code> when exhausted, this must be handled elsewhere.</p><p><strong>Iterator state and io advancement</strong></p><p>The resulting iterator <code>itr::LineViewIterator</code>&#39;s state is guaranteed, public interface:</p><ul><li><code>iterate(itr)</code> is equivalent to <code>iterate(itr, 0)</code></li><li><code>iterate(itr, n::Int)</code> is equivalent to <code>consume(x, n); iterate(itr)</code></li><li>The state returned by <code>iterate</code> is an <code>Int</code> equal to the length of the line emitted, plus the number of stripped <code>\r\n</code> or <code>\n</code> bytes, if <code>chomp</code>.</li></ul><p>These semantics together mean that a normal for-loop will exhaust the underlying io, and that no emitted line will be invalidated before the next call to <code>iterate</code>.</p><p>As an example, to read two lines, one may do:</p><pre><code class="language-julia hljs"># Read first line, and do something  with it
+(line_1, s) = iterate(itr);    x = process(line_1)
+# Two argument iterate advances itr to the begining of next line.
+(line_2, s) = iterate(itr, s); y = process(line_2)
+# Advance iterator from second line to third line
+consume(itr.reader, s) # .reader is a public property</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.line_views-Tuple{MemoryViews.MemoryView{UInt8}}"><a class="docstring-binding" href="#BufferIO.line_views-Tuple{MemoryViews.MemoryView{UInt8}}"><code>BufferIO.line_views</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">line_views(x::MemoryView{UInt8}; chomp::Bool=true)</code></pre><p>Return a stateless iterator of the lines in <code>x</code>. The returned views are <code>ImmutableMemoryView{UInt8}</code> views into <code>x</code>. Use the package StringViews.jl to turn them into <code>AbstractString</code>s.</p><p>A line is defined as all data up to and including <code>\n</code> (0x0a) or <code>\r\n</code> (0x0d 0x0a), or the remainder of the data in <code>io</code> if no <code>\n</code> byte was found. If the input is empty, this iterator is also empty.</p><p>The <code>chomp</code> keyword (default: true), controls whether any trailing <code>\r\n</code> or <code>\n</code> should be removed from the output.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; mem = MemoryView(&quot;abc\r\ndef\nab\n&quot;);
+
+julia&gt; foreach(i -&gt; println(repr(String(i))), line_views(mem))
+&quot;abc&quot;
+&quot;def&quot;
+&quot;ab&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.read_all!-Tuple{AbstractBufReader, MemoryViews.MutableMemoryView{UInt8}}"><a class="docstring-binding" href="#BufferIO.read_all!-Tuple{AbstractBufReader, MemoryViews.MutableMemoryView{UInt8}}"><code>BufferIO.read_all!</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int</code></pre><p>Read bytes into <code>dst</code> until either <code>dst</code> is filled or <code>io</code> is EOF, returning the number of bytes read.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abcdefgh&quot;), 3);
+
+julia&gt; v = zeros(UInt8, 10);
+
+julia&gt; read_all!(reader, MemoryView(v))
+8
+
+julia&gt; String(v)
+&quot;abcdefgh\0\0&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.read_into!-Tuple{AbstractBufReader, MemoryViews.MutableMemoryView{UInt8}}"><a class="docstring-binding" href="#BufferIO.read_into!-Tuple{AbstractBufReader, MemoryViews.MutableMemoryView{UInt8}}"><code>BufferIO.read_into!</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int</code></pre><p>Read bytes into the beginning of <code>dst</code>, returning the number of bytes read. This function will always read at least 1 byte, except when <code>dst</code> is empty, or <code>x</code> is EOF.</p><p>This function is defined generically for <code>AbstractBufReader</code>. New methods should strive to do at most one read call to the underlying IO, if <code>x</code> wraps such an <code>IO</code>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcde&quot;);
+
+julia&gt; v = zeros(UInt8, 8);
+
+julia&gt; read_into!(reader, MemoryView(v))
+5
+
+julia&gt; println(v)
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65, 0x00, 0x00, 0x00]</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.relative_seek-Tuple{CursorReader, Int64}"><a class="docstring-binding" href="#BufferIO.relative_seek-Tuple{CursorReader, Int64}"><code>BufferIO.relative_seek</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">relative_seek(io::AbstractBufReader, delta::Int) -&gt; io</code></pre><p>Seek the stream by <code>delta</code> relative to the current position. Seeking by a positive delta will advance the stream, and a negative delta rewinds the stream. When delta is zero, the stream is unchanged.</p><p>Seeking beyond either end of the stream will throw an <code>IOError</code> of kind <code>BadSeek</code>.</p><p>This method can be faster than <code>seek</code>, because it does not require <code>io</code> to query its absolute position, and therefore, in certain circumstances, the seeking can occur purely in-memory without interacting with the underlying IO.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.resize_buffer-Tuple{BufWriter, Int64}"><a class="docstring-binding" href="#BufferIO.resize_buffer-Tuple{BufWriter, Int64}"><code>BufferIO.resize_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">resize_buffer(io::Union{BufWriter, BufReader}, n::Int) -&gt; io</code></pre><p>Resize the internal buffer of <code>io</code> to exactly <code>n</code> bytes.</p><p>Throw an <code>ArgumentError</code> if <code>n</code> is less than 1, or lower than the currently number of buffered bytes (length of <code>get_unflushed</code> for <code>BufWriter</code>, length of <code>get_buffer</code> for <code>BufReader</code>).</p><pre><code class="language-julia-repl hljs">julia&gt; w = BufWriter(IOBuffer());
+
+julia&gt; write(w, &quot;abc&quot;)
+3
+
+julia&gt; length(get_buffer(resize_buffer(w, 5)))
+2
+
+julia&gt; resize_buffer(w, 2)
+ERROR: ArgumentError: Buffer size smaller than current number of buffered bytes
+[...]
+
+julia&gt; shallow_flush(w)
+3
+
+julia&gt; resize_buffer(w, 2) === w
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.shallow_flush-Tuple{BufWriter}"><a class="docstring-binding" href="#BufferIO.shallow_flush-Tuple{BufWriter}"><code>BufferIO.shallow_flush</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">shallow_flush(io::AbstractBufWriter)::Int</code></pre><p>Clear the buffer(s) of <code>io</code> by writing to the underlying I/O, but do not flush the underlying I/O. Return the number of bytes flushed.</p><p>This function is not generically defined for <code>AbstractBufReader</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; io = IOBuffer();
+
+julia&gt; wtr = BufWriter(io);
+
+julia&gt; write(wtr, &quot;hello!&quot;);
+
+julia&gt; take!(io)
+UInt8[]
+
+julia&gt; shallow_flush(wtr)
+6
+
+julia&gt; String(take!(io))
+&quot;hello!&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.skip_exact-Tuple{AbstractBufReader, Integer}"><a class="docstring-binding" href="#BufferIO.skip_exact-Tuple{AbstractBufReader, Integer}"><code>BufferIO.skip_exact</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">skip_exact(io::AbstractBufReader, n::Integer)::Nothing</code></pre><p>Like <code>skip</code>, but throw an <code>IOError</code> of kind <code>IOErrorKinds.EOF</code> if <code>n</code> bytes could not be skipped.</p><p>See also: <a href="#Base.skip-Tuple{AbstractBufReader, Int64}"><code>Base.skip</code></a></p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcdefghij&quot;);
+
+julia&gt; position(reader)
+0
+
+julia&gt; skip_exact(reader, 3)
+
+julia&gt; read(reader, 2) |&gt; String
+&quot;de&quot;
+
+julia&gt; skip_exact(reader, 6) # 5 bytes remaining
+ERROR: End of file</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.write_repeated-Tuple{AbstractBufWriter, UInt8, Integer}"><a class="docstring-binding" href="#BufferIO.write_repeated-Tuple{AbstractBufWriter, UInt8, Integer}"><code>BufferIO.write_repeated</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)::Int</code></pre><p>Write <code>byte</code> to <code>io</code> <code>n</code> times, or until <code>io</code> is full, and return the number of written bytes. This is equivalent to <code>write(io, fill(byte, n))</code>, but more efficient.</p><p>Throw an <code>InexactError</code> if <code>n</code> is negative.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; w = VecWriter(collect(b&quot;abc&quot;));
+
+julia&gt; write_repeated(w, UInt8(&#39;x&#39;), 6)
+6
+
+julia&gt; takestring!(w)
+&quot;abcxxxxxx&quot;</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.IOErrorKinds.IOErrorKind"><a class="docstring-binding" href="#BufferIO.IOErrorKinds.IOErrorKind"><code>BufferIO.IOErrorKinds.IOErrorKind</code></a> — <span class="docstring-category">Type</span></summary><section><div><pre><code class="language-julia hljs">IOErrorKind</code></pre><p>Enum indicating what error was thrown. The current list is non-exhaustive, and more may be added in future releases. The integral value of these enums are subject to change in minor versions.</p><p>Current errors:</p><ul><li><code>ConsumeBufferError</code>: Occurs when calling <code>consume</code> with a negative amount of bytes, or with more bytes than <code>length(get_buffer(io))</code></li><li><code>EOF</code>: Occurs when trying a reading operation on a file that has reached end-of-file</li><li><code>BufferTooShort</code>: Thrown by various functions that require a minimum buffer size, which the <code>io</code> cannot provide. This should only be thrown if the buffer is unable to grow to the required size, and not if e.g. the buffer does not expand because the io is EOF.</li><li><code>BadSeek</code>: An out-of-bounds seek operation was attempted</li><li><code>PermissionDenied</code>: Acces was denied to a system (filesystem, network, OS, etc.) resource</li><li><code>NotFound</code>: Resource was not found, e.g. no such file or directory</li><li><code>BrokenPipe</code>: The operation failed because a pipe was broken. This typically happens when  writing to stdout or stderr, which then gets closed.</li><li><code>AlreadyExists</code>: Resource (e.g. file) could not be created because it already exists</li><li><code>NotADirectory</code>: Resource is unexpectedly not a directory. E.g. a path contained a non-directory file as an intermediate component.</li><li><code>IsADirectory</code>: Resource is a directory when a non-directory was expected</li><li><code>DirectoryNotEmpty</code>: Operation cannot succeed because it requires an empty directory</li><li><code>InvalidFileName</code>: File name was invalid for platform, e.g. too long name, or invalid characters.</li><li><code>ClosedIO</code>: Indicates an operation was done on a closed IO.</li></ul></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.IOErrorKinds"><a class="docstring-binding" href="#BufferIO.IOErrorKinds"><code>BufferIO.IOErrorKinds</code></a> — <span class="docstring-category">Module</span></summary><section><div><pre><code class="language-julia hljs">module IOErrorKinds</code></pre><p>Used as a namespace for IOErrorKind.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.unsafe_read-Tuple{AbstractBufReader, Any, UInt64}"><a class="docstring-binding" href="#Base.unsafe_read-Tuple{AbstractBufReader, Any, UInt64}"><code>Base.unsafe_read</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">unsafe_read(io::AbstractBufReader, ref, nbytes::UInt)::Int
+unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)::Int</code></pre><p>Copy <code>nbytes</code> from <code>io</code> into <code>ref</code>, returning the number of bytes copied. If <code>io</code> reached end of file, stop at EOF. <code>ref</code> is converted to a pointer using <code>cref = Base.cconvert(Ptr, ref)</code>, then <code>Base.unsafe_convert(Ptr{UInt8}, cref)</code>.</p><p>Safety: The user must ensure that</p><ul><li>The resulting pointer is valid, and points to at least <code>nbytes</code> of writeable memory.</li><li><code>GC.@preserve</code>ing <code>cref</code> pins <code>ref</code> in memory, i.e. the pointer will not become invalid during the <code>GC.@preserve</code> block.</li></ul></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.readavailable-Tuple{AbstractBufReader}"><a class="docstring-binding" href="#Base.readavailable-Tuple{AbstractBufReader}"><code>Base.readavailable</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">readavailable(io::AbstractBufReader)::Vector{UInt8}</code></pre><p>Read the available bytes of <code>io</code> to a new <code>Vector{UInt8}</code>, except if zero bytes are available. In that case, it will attempt to get more bytes exactly once. If still no bytes are available, <code>io</code> is EOF, and the resulting vector is empty.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.peek-Tuple{AbstractBufReader, Type{UInt8}}"><a class="docstring-binding" href="#Base.peek-Tuple{AbstractBufReader, Type{UInt8}}"><code>Base.peek</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">peek(io::AbstractBufReader)::UInt8</code></pre><p>Get the next <code>UInt8</code> in <code>io</code>, without advancing <code>io</code>, or throw an <code>IOError</code> containing <code>IOErrorKinds.EOF</code> if <code>io</code> is EOF.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.read-Tuple{AbstractBufReader, Type{UInt8}}"><a class="docstring-binding" href="#Base.read-Tuple{AbstractBufReader, Type{UInt8}}"><code>Base.read</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">read(io::AbstractBufReader, UInt8)::UInt8</code></pre><p>Get the next <code>UInt8</code> in <code>io</code>, or throw an <code>IOError</code> containing <code>IOErrorKinds.EOF</code> if <code>io</code> is EOF.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.readbytes!"><a class="docstring-binding" href="#Base.readbytes!"><code>Base.readbytes!</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">readbytes!(io::AbstractBufReader, b::AbstractVector{UInt8}, nb::Integer=length(b))::Int</code></pre><p>Read at most <code>nb</code> bytes from <code>io</code> into <code>b</code>, returning the number of bytes read. This function will read zero bytes if and only if <code>io</code> is EOF.</p><p><code>b</code> must use one-based indexing. The size of <code>b</code> will be increased if needed (i.e. if nb is greater than length(b) and enough bytes could be read), but it will never be decreased.</p><p>It is generally preferred to use <code>read_into!</code> instead of this method.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.copyline-Tuple{Union{AbstractBufWriter, IO}, AbstractBufReader}"><a class="docstring-binding" href="#Base.copyline-Tuple{Union{AbstractBufWriter, IO}, AbstractBufReader}"><code>Base.copyline</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">copyline(
+    out::Union{IO, AbstractBufWriter},
+    from::AbstractBufReader;
+    keep::Bool = false
+) -&gt; out</code></pre><p>Copy one line from <code>from</code> to <code>out</code>, returning <code>out</code>. A line is defined as data up to and including \n (byte 0x0a), or all remaining data in <code>from</code> if no such byte is present.</p><p>If <code>keep</code> is <code>false</code>, as it is by default, the trailing <code>\r\n</code> (encoded as 0x0d 0x0a) or <code>\n</code> will not be copied to <code>out</code>, but it will be consumed from <code>from</code>.</p><p>This function may throw an <code>IOerror</code> with <code>IOErrorKinds.BufferTooShort</code>, if all the following occurs:</p><ul><li><code>keep</code> is <code>false</code></li><li>The reader has a buffer size of 1</li><li>The reader cannot expand its buffer</li><li>The only byte in the buffer is <code>\r</code> (0x0d). </li></ul></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.filesize-Tuple{CursorReader}"><a class="docstring-binding" href="#Base.filesize-Tuple{CursorReader}"><code>Base.filesize</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">filesize(io::AbstractBufReader)::Int</code></pre><p>Get the total size, in bytes, which can be read by <code>io</code>, and the span in which <code>io</code> can be seeked. Types implementing <code>filesize</code> should also implement <code>seek</code>.</p><p>The filesize does not depend on the current reading state of the <code>io</code>, i.e. reading bytes should not change the filesize.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.filesize-Tuple{BufWriter}"><a class="docstring-binding" href="#Base.filesize-Tuple{BufWriter}"><code>Base.filesize</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">filesize(io::AbstractBufWriter)::Int</code></pre><p>Get the filesize of <code>io</code>, in bytes.</p><p>The filesize is understood as the number of bytes flushed to the underlying resource of <code>io</code>, and which can be retrived by re-reading the data (so e.g. some streams like <code>devnull</code> may have a filesize of zero, even if many bytes was flushed to it.) The filesize does not depend on, and does not include, the number of buffered and unflushed bytes.</p><p>Types implementing <code>filesize</code> should also implement <code>seek</code> and <code>position</code>.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.seek-Tuple{BufReader, Int64}"><a class="docstring-binding" href="#Base.seek-Tuple{BufReader, Int64}"><code>Base.seek</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">seek(io::AbstractBufReader, offset::Int) -&gt; io</code></pre><p>Seek <code>io</code> to the zero-based position <code>offset</code>, if <code>io</code> supports seeking, and return <code>io</code>. When <code>offset === 0</code>, this is equivalent to <code>seekstart</code>. If <code>filesize(io)</code> is implemented, <code>seek(io, filesize(io))</code> is equivalent to <code>seekend(io)</code>.</p><p>Valid offsets are <code>0:filesize(io)</code>, if <code>io</code> implements <code>filesize</code>. Seeking outside these bounds throws an <code>IOError</code> of kind <code>BadSeek</code>.</p><p>This method is not generically defined for <code>AbstractBufReader</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; rdr = BufReader(IOBuffer(&quot;Hello, world!&quot;));
+
+julia&gt; String(read(rdr, 5))
+&quot;Hello&quot;
+
+julia&gt; seek(rdr, 3);
+
+julia&gt; String(read(rdr, 5))
+&quot;lo, w&quot;
+
+julia&gt; seek(rdr, 13);
+
+julia&gt; read(rdr)
+UInt8[]</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.seek-Tuple{BufWriter, Int64}"><a class="docstring-binding" href="#Base.seek-Tuple{BufWriter, Int64}"><code>Base.seek</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">seek(io::AbstractBufWriter, offset::Int) -&gt; io</code></pre><p>Flush <code>io</code>, then seek <code>io</code> to the zero-based position <code>offset</code>.</p><p>Valid values for <code>offset</code> are in <code>0:filesize(io)</code>, if <code>filesize(io)</code> is defined. The filesize  is computed <em>after</em> the flush. Seeking outside these bounds throws an <code>IOError</code> of kind <code>BadSeek</code>. Seeking should only change the filesize through its flush, so seeking an already-flushed stream should not change the filesize.</p><p>If seeking to before the current position (as defined by <code>position</code>), data between the new and the previous position need not be changed, and the underlying file or IO need not immediately be truncated. However, new write operations should write (or overwrite) data at the new position.</p><p>This method is not generically defined for <code>AbstractBufWriter</code>. Implementors of <code>seek</code> should also define <code>filesize(io)</code> and <code>position(io)</code></p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.position-Tuple{BufWriter}"><a class="docstring-binding" href="#Base.position-Tuple{BufWriter}"><code>Base.position</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">Base.position(io::AbstractBufWriter)::Int</code></pre><p>Get the zero-based stream position.</p><p>If the stream position is <code>p</code> (zero-based), then the next byte written will be byte number <code>p + 1</code> (one-based) in the file. The stream position does account for buffered (consumed, but unflushed) bytes, and therefore may exceed <code>filesize</code>. After calling <code>flush</code>, <code>position</code> must be in <code>0:filesize(io)</code>, if <code>filesize</code> is defined.</p></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.position-Tuple{CursorReader}"><a class="docstring-binding" href="#Base.position-Tuple{CursorReader}"><code>Base.position</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">Base.position(io::AbstractBufReader)::Int</code></pre><p>Get the zero-based stream position.</p><p>If the stream position is <code>p</code> (zero-based), then the next byte read will be byte number <code>p + 1</code> (one-based). The value of <code>position</code> must be in <code>0:filesize(io)</code>, if <code>filesize</code> is defined.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcdefghij&quot;);
+
+julia&gt; position(reader) # zero-indexed
+0
+
+julia&gt; read(reader, 3) |&gt; String
+&quot;abc&quot;
+
+julia&gt; position(reader)
+3
+
+julia&gt; read(reader, 2) |&gt; String
+&quot;de&quot;
+
+julia&gt; position(reader)
+5
+
+julia&gt; seekstart(reader); position(reader)
+0</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="Base.skip-Tuple{AbstractBufReader, Int64}"><a class="docstring-binding" href="#Base.skip-Tuple{AbstractBufReader, Int64}"><code>Base.skip</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">skip(io::AbstractBufReader, n::Integer)::Int</code></pre><p>Read <code>n</code> bytes from <code>io</code>, or until EOF, whichever comes first, and discard the read bytes. Return the number of bytes read.</p><p>This function is defined generically for <code>AbstractBufReader</code> by reading bytes, not by seeking. Subtypes of <code>AbstractBufReader</code> may implement this using seeking. In order to skip a generic <code>AbstractBufReader</code> and guarantee seeking is used, use <code>seek(io, position(io) + n)</code>.</p><p>Throws an <code>ArgumentError</code> if <code>n &lt; 0</code>.</p><p>See also: <a href="#BufferIO.skip_exact-Tuple{AbstractBufReader, Integer}"><code>skip_exact</code></a></p><p><strong>Examples</strong></p><pre><code class="language-julia hljs">julia&gt; reader = CursorReader(&quot;abcdefghij&quot;);
+
+julia&gt; skip(reader, 5)
+5
+
+julia&gt; read(reader, 3) |&gt; String
+&quot;fgh&quot;
+
+julia&gt; skip(reader, 10) # 2 bytes remaining
+2
+
+julia&gt; eof(reader)
+true
+
+julia&gt; skip(reader, 100)
+0</code></pre></div></section></details></article></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../types/">« Types</a><a class="docs-footer-nextpage" href="../examples/">Examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Saturday 20 December 2025 13:28">Saturday 20 December 2025</span>. Using Julia version 1.12.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
