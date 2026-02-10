@@ -106,7 +106,7 @@ using .IOErrorKinds: IOErrorKind
 """
     IOError
 
-This type is thrown by errors of AbstractBufReader.
+This type is thrown by errors of `AbstractBufReader` and `AbstractBufWriter`.
 They contain the `.kind::IOErrorKind` public property.
 
 See also: [`IOErrorKinds.IOErrorKind`](@ref)
@@ -151,6 +151,8 @@ function Base.showerror(io::IO, err::IOError)
         "Unique resource already exists, possibly a filesystem path"
     elseif kind === IOErrorKinds.NotADirectory
         "Not a directory"
+    elseif kind === IOErrorKinds.IsADirectory
+        "File is a directory"
     elseif kind === IOErrorKinds.DirectoryNotEmpty
         "Directory not empty"
     elseif kind === IOErrorKinds.InvalidFileName

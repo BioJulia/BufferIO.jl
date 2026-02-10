@@ -35,7 +35,7 @@ mutable struct BufWriter{T <: IO} <: AbstractBufWriter
 
     function BufWriter{T}(io::T, mem::Memory{UInt8}) where {T <: IO}
         if isempty(mem)
-            throw(ArgumentError("BufReader cannot be created with empty buffer"))
+            throw(ArgumentError("BufWriter cannot be created with empty buffer"))
         end
         return new{T}(io, mem, 0, false)
     end
@@ -182,7 +182,7 @@ Clear the buffer(s) of `io` by writing to the underlying I/O, but do not
 flush the underlying I/O.
 Return the number of bytes flushed.
 
-This function is not generically defined for `AbstractBufReader`.
+This function is not generically defined for `AbstractBufWriter`.
 
 ```jldoctest
 julia> io = IOBuffer();

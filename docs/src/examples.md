@@ -69,6 +69,8 @@ Similar to the above example, where BufferIO's principle of _the buffer is the i
 For example, currently, writing a number to an `IOBuffer` allocates. This is because the number is first heap-allocated, and then data from the heap is copied into the io.
 In contrast, BufferIO provides the the a buffer to write into directly.
 
+The following method is already implemented in BufferIO, but is useful as an example:
+
 ```julia
 using BufferIO, MemoryViews
 
@@ -89,6 +91,16 @@ function write(io::AbstractBufWriter, n::BitInteger)
 end
 ```
 
-For types that implement the two-arg method of `get_nonempty_buffer`, 
+For types that implement the two-arg method of `get_nonempty_buffer`, the while loop can be omitted,
+since all the required buffer space can be reserved immediately:
 
-
+```julia
+# For some hypothetical MyButWriter which implements two-arg `get_nonempty_buffer`
+function write(io::MyBufWriter, n::BitInteger)
+    buffer = get_nonempty_buffer(io, sizeof(n))
+    isnothing(buffer) && throw(IOError(IOErrorKinds.BufferTooShort))
+    GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
+    consume(io, sizeof(n))
+    return sizeof(n)
+end
+```
