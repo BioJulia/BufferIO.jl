@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Readers · BufferIO.jl</title><meta name="title" content="Readers · BufferIO.jl"/><meta property="og:title" content="Readers · BufferIO.jl"/><meta property="twitter:title" content="Readers · BufferIO.jl"/><meta name="description" content="Documentation for BufferIO.jl."/><meta property="og:description" content="Documentation for BufferIO.jl."/><meta property="twitter:description" content="Documentation for BufferIO.jl."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">BufferIO.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">BufferIO</a></li><li class="is-active"><a class="tocitem" href>Readers</a><ul class="internal"><li><a class="tocitem" href="#Core,-low-level-interface"><span>Core, low-level interface</span></a></li><li><a class="tocitem" href="#Notable-AbstractReader-functions"><span>Notable <code>AbstractReader</code> functions</span></a></li></ul></li><li><a class="tocitem" href="../writers/">Writers</a></li><li><a class="tocitem" href="../types/">Types</a></li><li><a class="tocitem" href="../reference/">API reference</a></li><li><a class="tocitem" href="../examples/">Examples</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Readers</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Readers</a></li></ul></nav><div class="docs-right"><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="AbstractBufReader"><a class="docs-heading-anchor" href="#AbstractBufReader"><code>AbstractBufReader</code></a><a id="AbstractBufReader-1"></a><a class="docs-heading-anchor-permalink" href="#AbstractBufReader" title="Permalink"></a></h1><h2 id="Core,-low-level-interface"><a class="docs-heading-anchor" href="#Core,-low-level-interface">Core, low-level interface</a><a id="Core,-low-level-interface-1"></a><a class="docs-heading-anchor-permalink" href="#Core,-low-level-interface" title="Permalink"></a></h2><p>The core interface of an <code>io::AbstractBufReader</code> consists of three functions, that are to be used together:</p><ul><li><code>get_buffer(io)</code> returns a view into the internal buffer with data ready to read. You read from the io by copying.</li><li><code>fill_buffer(io)</code> attempts to append more bytes to the buffer returned by future calls to <code>get_buffer</code></li><li><code>consume(io, n::Int)</code> removes the first <code>n</code> bytes of the buffer from future buffers returned by <code>get_buffer</code></li></ul><p>While lots of higher-level convenience functions are also defined, nearly all functionality is defined in terms of these three core functions. See the docstrings of these functions for details and edge cases.</p><p>Let&#39;s see two use cases to demonstrate how this core interface is used.</p><h3 id="Example:-Reading-N-bytes"><a class="docs-heading-anchor" href="#Example:-Reading-N-bytes">Example: Reading N bytes</a><a id="Example:-Reading-N-bytes-1"></a><a class="docs-heading-anchor-permalink" href="#Example:-Reading-N-bytes" title="Permalink"></a></h3><p>Suppose we want a function <code>read_exact(io::AbstractBufReader, n::Int)</code> which reads exactly <code>n</code> bytes to a new <code>Vector{UInt8}</code>, unless <code>io</code> hits end-of-file (EOF).</p><p>This functionality is already implemented as <code>read(::AbstractBufReader, ::Integer)</code>, so the below implementation is for illustration purposes.</p><p>Since <code>io</code> itself controls how many bytes are filled with <code>fill_buffer</code> (typically whatever is the most efficient), we do this best by calling the functions above in a loop:</p><pre><code class="language-julia hljs">function read_exact(io::AbstractBufReader, n::Int)
+    n &gt; -1 || throw(ArgumentError(&quot;n must be non-negative&quot;))
+    result = sizehint!(UInt8[], n)
+    remaining = n
+    while !iszero(remaining)
+        # Get the buffer to copy bytes from in order to read from `io`
+        buffer = get_buffer(io)
+        if isempty(buffer)
+            # Fill new bytes into the buffer. This returns `0` if `io` if EOF,
+            # in which case we break to return the result.
+            # `fill_buffer` can return `nothing` for some reader types, but only if
+            # the buffer is not empty.
+            iszero(something(fill_buffer(io))) &amp;&amp; break
+            buffer = get_buffer(io)
+        end
+        mn = min(remaining, length(buffer))
+        append!(result, buffer[1:mn])
+        # Signal to `io` that the first `mn` bytes have already been read,
+        # so these should not be output in future calls to `get_buffer`
+        consume(io, mn)
+        remaining -= mn
+    end
+    return result
+end</code></pre><p>The code above may be simplified by using the convenience function <a href="#BufferIO.get_nonempty_buffer-Tuple{AbstractBufReader}-readers"><code>get_nonempty_buffer</code></a> or by simply calling the already-implemented <code>read(io, n)</code>.</p><h3 id="Example:-Reading-a-line-without-intermediate-allocations"><a class="docs-heading-anchor" href="#Example:-Reading-a-line-without-intermediate-allocations">Example: Reading a line without intermediate allocations</a><a id="Example:-Reading-a-line-without-intermediate-allocations-1"></a><a class="docs-heading-anchor-permalink" href="#Example:-Reading-a-line-without-intermediate-allocations" title="Permalink"></a></h3><p>In this example, we want to buffer a full line in <code>io</code>&#39;s buffer, and then return a view into the buffer representing that line.</p><p>This function is an unusual use case, because we need to ensure the buffer is able to hold a full line. For most IO operations, we do not need, nor want to control exactly how much is buffered by <code>io</code>, since leaving that up to <code>io</code> is typically more efficient.</p><p>Therefore, this is one of the rare cases where we may need to force <code>io</code> to grow its buffer.</p><pre><code class="language-julia hljs">function get_line_view(io::AbstractBufReader)
+    # Which position to search for a newline from
+    scan_from = 1
+    while true
+        buffer = get_buffer(io)
+        pos = findnext(==(UInt8(&#39;\n&#39;)), buffer, scan_from)
+        if pos === nothing
+            scan_from = length(buffer) + 1
+            n_filled = fill_buffer(io)
+            if n_filled === nothing
+                # fill_buffer may return nothing if the buffer is not empty,
+                # and the buffer cannot be expanded further.
+                error(&quot;io could not buffer an entire line&quot;)
+            elseif iszero(n_filled)
+                # This indicates EOF, so the line is defined as the rest of the
+                # content of `io`
+                return buffer
+            end
+        else
+            return buffer[1:pos]
+        end
+    end
+end</code></pre><p>Functionality similar to the above is provided by the <a href="../reference/#BufferIO.line_views-Tuple{AbstractBufReader}"><code>line_views</code></a> iterator.</p><article><details class="docstring" open="true"><summary id="BufferIO.get_buffer-readers"><a class="docstring-binding" href="#BufferIO.get_buffer-readers"><code>BufferIO.get_buffer</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}</code></pre><p>Get the available bytes of <code>io</code>.</p><p>Calling this function, even when the buffer is empty, should never do actual system I/O, and in particular should not attempt to fill the buffer. To fill the buffer, call <a href="../reference/#BufferIO.fill_buffer"><code>fill_buffer</code></a>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abcdefghij&quot;), 5);
+
+julia&gt; get_buffer(reader) |&gt; isempty
+true
+
+julia&gt; fill_buffer(reader)
+5
+
+julia&gt; get_buffer(reader) |&gt; println
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65]</code></pre></div></section><section><div><pre><code class="language-julia hljs">get_buffer(io::AbstractBufWriter)::MutableMemoryView{UInt8}</code></pre><p>Get the available mutable buffer of <code>io</code> that can be written to.</p><p>Calling this function should never do actual system I/O, and in particular should not attempt to flush data from the buffer or grow the buffer. To increase the size of the buffer, call <a href="../reference/#BufferIO.grow_buffer-Tuple{BufWriter}"><code>grow_buffer</code></a>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; writer = BufWriter(IOBuffer(), 5);
+
+julia&gt; buffer = get_buffer(writer);
+
+julia&gt; (typeof(buffer), length(buffer))
+(MutableMemoryView{UInt8}, 5)
+
+julia&gt; write(writer, &quot;abcde&quot;)
+5
+
+julia&gt; get_buffer(writer) |&gt; isempty
+true
+
+julia&gt; flush(writer)
+
+julia&gt; buffer = get_buffer(writer); length(buffer)
+5</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.fill_buffer-readers"><a class="docstring-binding" href="#BufferIO.fill_buffer-readers"><code>BufferIO.fill_buffer</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">fill_buffer(io::AbstractBufReader)::Union{Int, Nothing}</code></pre><p>Fill more bytes into the buffer from <code>io</code>&#39;s underlying buffer, returning the number of bytes added. After calling <code>fill_buffer</code> and getting <code>n</code>, the buffer obtained by <code>get_buffer</code> should have <code>n</code> new bytes appended.</p><p>This function must fill at least one byte, except</p><ul><li>If the underlying io is EOF, or there is no underlying io to fill bytes from, return 0</li><li>If the buffer is not empty, and cannot be expanded, return <code>nothing</code>.</li></ul><p>Buffered readers which do not wrap another underlying IO, and therefore can&#39;t fill its buffer should return 0 unconditionally. This function should never return <code>nothing</code> if the buffer is empty.</p><div class="admonition is-info" id="Note-376f9e54afe8b45a"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-376f9e54afe8b45a" title="Permalink"></a></header><div class="admonition-body"><p>Idiomatically, users should not call <code>fill_buffer</code> when the buffer is not empty, because doing so may force growing the buffer instead of letting <code>io</code> choose an optimal buffer size. Calling <code>fill_buffer</code> with a nonempty buffer is only appropriate if, for algorithmic reasons you need <code>io</code> itself to buffer some minimum amount of data.</p></div></div><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcde&quot;);
+
+julia&gt; fill_buffer(reader) # CursorReader can&#39;t fill its buffer
+0
+
+julia&gt; reader = BufReader(IOBuffer(&quot;abcde&quot;), 3);
+
+julia&gt; length(get_buffer(reader)) # buffer of BufReader initially empty
+0
+
+julia&gt; fill_buffer(reader)
+3
+
+julia&gt; length(get_buffer(reader)) # now must be 0 + 3
+3</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.consume-readers"><a class="docstring-binding" href="#BufferIO.consume-readers"><code>BufferIO.consume</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">consume(io::Union{AbstractBufReader, AbstractBufWriter}, n::Int)::Nothing</code></pre><p>Remove the first <code>n</code> bytes of the buffer of <code>io</code>. Consumed bytes will not be returned by future calls to <code>get_buffer</code>.</p><p>If n is negative, or larger than the current buffer size, throw an <code>IOError</code> with <code>ConsumeBufferError</code> kind. This check is a boundscheck and may be elided with <code>@inbounds</code>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcdefghij&quot;);
+
+julia&gt; get_buffer(reader) == b&quot;abcdefghij&quot;
+true
+
+julia&gt; consume(reader, 8); get_buffer(reader) |&gt; println
+UInt8[0x69, 0x6a]
+
+julia&gt; consume(reader, 3) # 2 bytes remaining
+ERROR: Called `consume` with a negative amount, or larger than available buffer size</code></pre></div></section></details></article><h2 id="Notable-AbstractReader-functions"><a class="docs-heading-anchor" href="#Notable-AbstractReader-functions">Notable <code>AbstractReader</code> functions</a><a id="Notable-AbstractReader-functions-1"></a><a class="docs-heading-anchor-permalink" href="#Notable-AbstractReader-functions" title="Permalink"></a></h2><p><code>AbstractBufReader</code> implements most of the <code>Base.IO</code> interface, see the section in the sidebar. They also have a few special convenience functions:</p><article><details class="docstring" open="true"><summary id="BufferIO.get_nonempty_buffer-Tuple{AbstractBufReader}-readers"><a class="docstring-binding" href="#BufferIO.get_nonempty_buffer-Tuple{AbstractBufReader}-readers"><code>BufferIO.get_nonempty_buffer</code></a> — <span class="docstring-category">Method</span></summary><section><div><pre><code class="language-julia hljs">get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemoryView{UInt8}}</code></pre><p>Get a buffer with at least one byte, if bytes are available. Otherwise, fill the buffer, and return the newly filled buffer. Returns <code>nothing</code> only if <code>x</code> is EOF.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abc&quot;));
+
+julia&gt; get_buffer(reader) |&gt; isempty
+true
+
+julia&gt; get_nonempty_buffer(reader) |&gt; println
+UInt8[0x61, 0x62, 0x63]
+
+julia&gt; consume(reader, 3)
+
+julia&gt; get_nonempty_buffer(reader) === nothing # EOF
+true</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.read_into!-readers"><a class="docstring-binding" href="#BufferIO.read_into!-readers"><code>BufferIO.read_into!</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int</code></pre><p>Read bytes into the beginning of <code>dst</code>, returning the number of bytes read. This function will always read at least 1 byte, except when <code>dst</code> is empty, or <code>x</code> is EOF.</p><p>This function is defined generically for <code>AbstractBufReader</code>. New methods should strive to do at most one read call to the underlying IO, if <code>x</code> wraps such an <code>IO</code>.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = CursorReader(&quot;abcde&quot;);
+
+julia&gt; v = zeros(UInt8, 8);
+
+julia&gt; read_into!(reader, MemoryView(v))
+5
+
+julia&gt; println(v)
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65, 0x00, 0x00, 0x00]</code></pre></div></section></details></article><article><details class="docstring" open="true"><summary id="BufferIO.read_all!-readers"><a class="docstring-binding" href="#BufferIO.read_all!-readers"><code>BufferIO.read_all!</code></a> — <span class="docstring-category">Function</span></summary><section><div><pre><code class="language-julia hljs">read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int</code></pre><p>Read bytes into <code>dst</code> until either <code>dst</code> is filled or <code>io</code> is EOF, returning the number of bytes read.</p><p><strong>Examples</strong></p><pre><code class="language-julia-repl hljs">julia&gt; reader = BufReader(IOBuffer(&quot;abcdefgh&quot;), 3);
+
+julia&gt; v = zeros(UInt8, 10);
+
+julia&gt; read_all!(reader, MemoryView(v))
+8
+
+julia&gt; String(v)
+&quot;abcdefgh\0\0&quot;</code></pre></div></section></details></article></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« BufferIO</a><a class="docs-footer-nextpage" href="../writers/">Writers »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Tuesday 10 February 2026 07:38">Tuesday 10 February 2026</span>. Using Julia version 1.12.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
