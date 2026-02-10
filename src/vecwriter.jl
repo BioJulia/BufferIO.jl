@@ -122,6 +122,15 @@ function Base.Vector(v::ByteVector)
     return result
 end
 
+# This internal function creates a Vector from a ByteVector,
+# reusing the memory. If ByteVector is ever turned into an
+# alias of Vector{UInt8}, this should be the identity function
+# TODO: Use Base.wrap once it stabilizes,
+# see https://github.com/JuliaLang/julia/issues/58729
+function to_vector(v::ByteVector)::Vector{UInt8}
+    return GC.@preserve v unsafe_wrap(Array, pointer(v), length(v))
+end
+
 @static if isdefined(Base, :memoryindex)
     memindex(x::MemoryRef) = Base.memoryindex(x)
 else

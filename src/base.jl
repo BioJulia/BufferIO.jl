@@ -168,7 +168,7 @@ function Base.readbytes!(x::AbstractBufReader, b::AbstractVector{UInt8}, nb::Int
 end
 
 """
-    read(io::AbstractBufReader, A::AbstractArray{UInt8}) -> A
+    read!(io::AbstractBufReader, A::AbstractArray{UInt8}) -> A
 
 Read from `io` into `A`, filling and returning it.
 If `io` reaches EOF before filling `A`, throw an `IOError` with `IOErrorKinds.EOF`.
@@ -377,7 +377,7 @@ end
 function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
     io = VecWriter()
     copyuntil(io, x, delim; keep)
-    return io.vec
+    return to_vector(io.vec)
 end
 
 """
@@ -494,7 +494,7 @@ end
 
 @noinline function _write_slowpath(io::AbstractBufWriter, x::PlainTypes)
     # We serialize as little endian, so byteswap if machine is big endian
-    u = htol(as_unsigned(x))
+    u = as_unsigned(x)
     n_written = 0
     while n_written < sizeof(u)
         buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
