@@ -210,9 +210,9 @@ struct VecWriter <: AbstractBufWriter
     VecWriter(v::ByteVector) = new(v)
 end
 
-const DEFAULT_VECWIRTER_SIZE = 32
+const DEFAULT_VECWRITER_SIZE = 32
 
-VecWriter() = VecWriter(undef, DEFAULT_VECWIRTER_SIZE)
+VecWriter() = VecWriter(undef, DEFAULT_VECWRITER_SIZE)
 
 function VecWriter(::UndefInitializer, len::Int)
     return VecWriter(empty!(ByteVector(undef, len)))
@@ -220,7 +220,17 @@ end
 
 function VecWriter(v::Vector{UInt8})
     ref = Base.cconvert(Ptr, v)
-    return VecWriter(unsafe_from_parts(ref, length(v)))
+    bytevec = unsafe_from_parts(ref, length(v))
+    # Empty vector and replace its memory. This is a safety
+    # mechanism, to ensure caller doesn't mutate the memory
+    # after construction.
+    # TODO: This is inefficient. It also violates the design
+    # that VecWriter is supposed to mutate the input vector.
+    # The true solution to this is to somehow use Vector
+    # instead of my home-baked ByteVector
+    empty!(v)
+    sizehint!(v, 0; shrink = true)
+    return VecWriter(bytevec)
 end
 
 function get_buffer(x::VecWriter)
