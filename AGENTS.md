@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to AI agents when working with code in this repository.
 
@@ -18,6 +18,9 @@ JULIA_TEST_FAILFAST=true julia --project=. --startup=no -e "using Pkg; Pkg.test(
 JULIA_TEST_FAILFAST=true julia --project=. --startup=no -e 'using BufferIO, Test, MemoryViews; include("test/generic_types.jl"); include("test/bufreader.jl")'
 ```
 Note: `test/generic_types.jl` defines test helper types and must be included before any individual test file.
+
+**Experiment with boundschecks on**
+Add julia option `--check-bounds=yes` when running Julia code, to avoid undefined behaviour from out of bounds access.
 
 **Build documentation locally:**
 ```bash

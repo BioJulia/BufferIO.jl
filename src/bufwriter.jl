@@ -69,7 +69,7 @@ julia> BufWriter(io) do writer
        end
 hello, world!
 
-julia> iswritable(io) # closing reader closes io also
+julia> iswritable(io) # closing writer closes io also
 false
 ```
 """
@@ -202,6 +202,9 @@ julia> String(take!(io))
 ```
 """
 function shallow_flush(x::BufWriter)::Int
+    if x.is_closed
+        throw(IOError(IOErrorKinds.ClosedIO))
+    end
     to_flush = x.consumed
     if !iszero(to_flush)
         used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]

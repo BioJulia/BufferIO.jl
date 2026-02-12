@@ -7,6 +7,9 @@ Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufReader` in
 The `BufReader` has an infinitely growable buffer, and will only grow the buffer if
 [`fill_buffer`](@ref) is called while its internal buffer is full.
 
+This wrapper reads from `io` using `readbytes!`. If `io` is not EOF,
+and `readbytes!` reads zero bytes, an exception is thrown when filling the buffer.
+
 Throw an `ArgumentError` if `buffer_size` is less than 1.
 
 ```jldoctest
@@ -117,8 +120,13 @@ function fill_buffer(x::BufReader)::Int
     # Add more bytes at the end, if possible
     if x.stop < length(x.buffer)
         n_added = 0
+        attempts = 0
         while n_added == 0
+            # Safety check to prevent a bad IO object from making this loop
+            # infinite
+            attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
             n_added = readbytes!(x.io, MemoryView(x.buffer)[(x.stop + 1):length(x.buffer)])
+            attempts += 1
         end
         x.stop += n_added
         return n_added
@@ -146,8 +154,13 @@ end
     view = MemoryView(x.buffer)[(n_filled + 1):length(x.buffer)]
     @assert !isempty(view)
     n_added = 0
+    attempts = 0
     while n_added == 0
+        # Safety check to prevent a bad IO object from making this loop
+        # infinite
+        attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
         n_added = readbytes!(x.io, view)
+        attempts += 1
     end
     x.start = 1
     x.stop = n_added + n_filled
