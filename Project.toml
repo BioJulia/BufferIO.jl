@@ -1,13 +1,13 @@
 name = "BufferIO"
 uuid = "ff366017-094f-4144-bd70-a828a0d67152"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["Jakob Nybo Nissen <jakobnybonissen@gmail.com>"]
 
 [deps]
 MemoryViews = "a791c907-b98b-4e44-8f4d-e4c2362c6b2f"
 
 [compat]
-MemoryViews = "0.3.6"
+MemoryViews = "0.3.6, 0.4"
 Test = "1.11"
 julia = "1.11"
 
