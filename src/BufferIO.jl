@@ -251,6 +251,29 @@ They may optionally implement
 """
 abstract type AbstractBufWriter end
 
+"""
+    get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}
+
+Get the available bytes of `io`.
+
+Calling this function, even when the buffer is empty, should never do actual system I/O,
+and in particular should not attempt to fill the buffer.
+To fill the buffer, call [`fill_buffer`](@ref).
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abcdefghij"), 5);
+
+julia> get_buffer(reader) |> isempty
+true
+
+julia> fill_buffer(reader)
+5
+
+julia> get_buffer(reader) |> println
+UInt8[0x61, 0x62, 0x63, 0x64, 0x65]
+```
+"""
 function get_buffer end
 
 """
@@ -467,6 +490,23 @@ const PlainTypes = Union{PLAIN_TYPES...}
 Get a buffer with at least one byte, if bytes are available.
 Otherwise, call `grow_buffer`, then get the buffer again.
 Returns `nothing` if the buffer is still empty.
+
+# Examples
+```jldoctest
+julia> io = BufWriter(IOBuffer(), 12);
+
+julia> write_repeated(io, 0x00, 12)
+12
+
+julia> get_buffer(io) |> isempty
+true
+
+julia> get_nonempty_buffer(io) |> isempty
+false
+
+julia> get_buffer(io) |> isempty # buffer now grown
+false
+```
 """
 function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
     buffer = get_buffer(x)::MutableMemoryView{UInt8}

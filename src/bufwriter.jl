@@ -312,6 +312,21 @@ For writers with an underlying I/O, the underlying I/O should also be flushed.
 
 For writers without an underlying I/O, where the final writing destination is `io`
 ifself, the implementation may be simply `return nothing`.
+
+# Examples
+```jldoctest
+julia> buf = IOBuffer(); io = BufWriter(buf);
+
+julia> print(io, "hello")
+
+julia> String(take!(buf))
+""
+
+julia> flush(io)
+
+julia> String(take!(buf))
+"hello"
+```
 """
 function Base.flush(x::BufWriter)
     @inline shallow_flush(x)
@@ -347,12 +362,34 @@ Seeking should only change the filesize through its flush, so seeking an already
 stream should not change the filesize.
 
 If seeking to before the current position (as defined by `position`), data between
-the new and the previous position need not be changed, and the underlying file or IO
-need not immediately be truncated. However, new write operations should write (or
+the new and the previous position should not be changed, and the underlying file or IO
+should not immediately be truncated. However, new write operations should write (or
 overwrite) data at the new position.
 
 This method is not generically defined for `AbstractBufWriter`. Implementors of `seek`
 should also define `filesize(io)` and `position(io)`
+
+# Examples
+```jldoctest
+julia> buf = IOBuffer();
+
+julia> io = BufWriter(buf);
+
+julia> write(io, "abcdef");
+
+julia> seek(io, 3);
+
+julia> write(io, "xyzghi");
+
+julia> seek(io, 10)
+ERROR: Invalid seek, possibly seek out of bounds
+[...]
+
+julia> flush(io);
+
+julia> String(take!(buf))
+"abcxyzghi"
+```
 """
 function Base.seek(io::BufWriter, offset::Int)
     flush(io)
@@ -374,6 +411,22 @@ The filesize does not depend on, and does not include, the number of buffered an
 unflushed bytes.
 
 Types implementing `filesize` should also implement `seek` and `position`.
+
+# Examples
+```jldoctest
+julia> io = BufWriter(IOBuffer());
+
+julia> write(io, "abc");
+
+julia> filesize(io)
+0
+
+julia> flush(io); filesize(io)
+3
+
+julia> seek(io, 1); filesize(io)
+3
+```
 """
 Base.filesize(io::BufWriter) = filesize(io.io)
 
@@ -384,8 +437,23 @@ Get the zero-based stream position.
 
 If the stream position is `p` (zero-based), then the next byte written will be byte number
 `p + 1` (one-based) in the file.
-The stream position does account for buffered (consumed, but unflushed) bytes, and therefore may exceed `filesize`.
+The stream position *does* account for buffered (consumed, but unflushed) bytes, and therefore may exceed `filesize`.
 After calling `flush`, `position` must be in `0:filesize(io)`, if `filesize` is defined.
+
+# Examples
+```jldoctest
+julia> io = BufWriter(IOBuffer());
+
+julia> write(io, "hello");
+
+julia> (filesize(io), position(io))
+(0, 5)
+
+julia> seek(io, 2); # NB: seek flushes
+
+julia> (filesize(io), position(io))
+(5, 2)
+```
 """
 Base.position(io::BufWriter) = position(io.io) + io.consumed
 

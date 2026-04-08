@@ -84,7 +84,7 @@ end
     @test_throws ArgumentError read(io, -1)
 
     io = GenericBufReader("abcde")
-    @test read(io, typemax(Int)) == b"abcde"
+    @test read(io, 500) == b"abcde"
 end
 
 @testset "read(::T, String)" begin

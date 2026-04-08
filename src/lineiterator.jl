@@ -161,6 +161,19 @@ Unlike `eachline(::IO)`, this method does not close `io` when iteration is done,
 yet support `Iterators.reverse` or `last`.
 
 See also: [`line_views`](@ref)
+
+# Examples
+```jldoctest
+julia> io = CursorReader("hello\\nthere\\n\\nGeneral!");
+
+julia> lines = collect(eachline(io)); println(lines)
+["hello", "there", "", "General!"]
+
+julia> typeof(lines) == Vector{String}
+true
+
+julia> close(io);
+```
 """
 function Base.eachline(x::AbstractBufReader; keep::Bool = false)
     return EachLine{typeof(x)}(line_views(x; chomp = !keep))
