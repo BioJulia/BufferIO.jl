@@ -4,6 +4,25 @@ Base.eof(x::AbstractBufReader) = isnothing(get_nonempty_buffer(x))
 
 Base.read(x::AbstractBufReader, ::Type{String}) = String(read(x))
 
+"""
+    read(io::AbstractBufReader)::Vector{UInt8}
+
+Read all of `io` into a new `Vector{UInt8}` and return the vector.
+
+This function repeatedly reads from `io` and resizes the vector until `io` reached EOF.
+If the filesize of `io` is known beforehand, calling `read(io, file_size)` may be faster.
+
+# Examples
+```jldoctest
+julia> v = read(CursorReader("hello"));
+
+julia> typeof(v) === Vector{UInt8}
+true
+
+julia> v == b"hello"
+true
+```
+"""
 function Base.read(x::AbstractBufReader)
     v = UInt8[]
     while true
@@ -16,17 +35,39 @@ function Base.read(x::AbstractBufReader)
 end
 
 """
-    read(io::AbstractBufReader, nb::Integer)
+    read(io::AbstractBufReader, nb::Integer)::Vector{UInt8}
 
 Read at exactly `nb` bytes from `io`, or until end of file, and return the
 bytes read as a `Vector{UInt8}`.
 
+This allocates a `Vector{UInt8}` of size `nb`, so do not pass a large
+value as `nb` in order to read the whole of `io`; use `read(io)` instead.
+
 Throw an `ArgumentError` if `nb` is negative.
+
+# Examples
+```jldoctest
+julia> io = CursorReader("hello, world!");
+
+julia> v = read(io, 8);
+
+julia> typeof(v) == Vector{UInt8}
+true
+
+julia> v == b"hello, w"
+true
+
+julia> read(io, 100) == b"orld!"
+true
+
+julia> isempty(read(io, 10))
+true
+```
 """
 function Base.read(x::AbstractBufReader, nb::Integer)
     nb = Int(nb)::Int
     nb < 0 && throw(ArgumentError("nb cannot be negative"))
-    v = UInt8[]
+    v = sizehint!(UInt8[], nb)
     remaining = nb
     while !iszero(remaining)
         buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
@@ -51,7 +92,7 @@ If `io` reached end of file, stop at EOF.
 
 Safety: The user must ensure that
 * The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
-* `GC.@preserve`ing `cref` pins `ref` in memory, i.e. the pointer will not become
+* `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
   invalid during the `GC.@preserve` block.
 """
 function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
@@ -90,6 +131,23 @@ end
 Read the available bytes of `io` to a new `Vector{UInt8}`, except if zero bytes
 are available. In that case, it will attempt to get more bytes exactly once.
 If still no bytes are available, `io` is EOF, and the resulting vector is empty.
+
+# Examples
+```jldoctest
+julia> io = BufReader(IOBuffer("hello, world!"), 10);
+
+julia> bytesavailable(io)
+0
+
+julia> readavailable(io) == b"hello, wor"
+true
+
+julia> readavailable(io) == b"ld!"
+true
+
+julia> readavailable(io) == b""
+true
+```
 """
 function Base.readavailable(x::AbstractBufReader)
     buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
@@ -104,6 +162,21 @@ end
 
 Get the next `UInt8` in `io`, without advancing `io`, or throw an `IOError`
 containing `IOErrorKinds.EOF` if `io` is EOF.
+
+# Examples
+```jldoctest
+julia> io = CursorReader("xyz");
+
+julia> peek(io) === UInt8('x')
+true
+
+julia> read(io) == b"xyz"
+true
+
+julia> peek(io)
+ERROR: End of file
+[...]
+```
 """
 function Base.peek(x::AbstractBufReader, ::Type{UInt8})
     buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
@@ -123,6 +196,21 @@ end
 
 Get the next `UInt8` in `io`, or throw an `IOError` containing `IOErrorKinds.EOF`
 if `io` is EOF.
+
+# Examples
+```jldoctest
+julia> io = CursorReader("xy");
+
+julia> read(io, UInt8) === UInt8('x')
+true
+
+julia> read(io, UInt8) === UInt8('y')
+true
+
+julia> read(io, UInt8)
+ERROR: End of file
+[...]
+```
 """
 function Base.read(x::AbstractBufReader, ::Type{UInt8})
     res = peek(x, UInt8)
@@ -310,7 +398,7 @@ Throws an `ArgumentError` if `n < 0`.
 See also: [`skip_exact`](@ref)
 
 # Examples
-```
+```jldoctest
 julia> reader = CursorReader("abcdefghij");
 
 julia> skip(reader, 5)

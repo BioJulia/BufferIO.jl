@@ -81,29 +81,6 @@ function BufReader(f, io::IO, buffer_size::Int = 8192)
     end
 end
 
-"""
-    get_buffer(io::AbstractBufReader)::ImmutableMemoryView{UInt8}
-
-Get the available bytes of `io`.
-
-Calling this function, even when the buffer is empty, should never do actual system I/O,
-and in particular should not attempt to fill the buffer.
-To fill the buffer, call [`fill_buffer`](@ref).
-
-# Examples
-```jldoctest
-julia> reader = BufReader(IOBuffer("abcdefghij"), 5);
-
-julia> get_buffer(reader) |> isempty
-true
-
-julia> fill_buffer(reader)
-5
-
-julia> get_buffer(reader) |> println
-UInt8[0x61, 0x62, 0x63, 0x64, 0x65]
-```
-"""
 function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}
     return @inbounds ImmutableMemoryView(x.buffer)[x.start:x.stop]
 end
