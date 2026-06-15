@@ -44,15 +44,5 @@ end
 Base.write(x::IOWriter, y::UInt8) = write(x.x, y)
 Base.unsafe_write(io::IOWriter, p::Ptr{UInt8}, n::UInt) = unsafe_write(io.x, p, n)
 
-Base.write(
-    x::IOWriter, y::Union{
-        Int16, UInt16,
-        Int32, UInt32,
-        Int64, UInt64,
-        Int128, UInt128,
-        Float16, Float32, Float64,
-    }
-) = write(x.x, y)
-
 # Other methods
 Base.seek(x::IOWriter, n::Integer) = (seek(x.x, n); x)
