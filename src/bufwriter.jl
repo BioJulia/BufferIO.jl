@@ -14,7 +14,7 @@ julia> io = IOBuffer(); wtr = BufWriter(io);
 
 julia> print(wtr, "Hello!")
 
-julia> write(wtr, [0x1234, 0x5678])
+julia> write(wtr, [0x34, 0x12, 0x78, 0x56])
 4
 
 julia> isempty(read(io)) # wtr not flushed
