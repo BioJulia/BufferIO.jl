@@ -332,13 +332,3 @@ function Base.unsafe_write(io::VecWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
     @inbounds consume(io, n_bytes % Int)
     return n_bytes % Int
 end
-
-function Base.write(io::VecWriter, x::PlainTypes)
-    buffer = get_nonempty_buffer(io, sizeof(x))
-    GC.@preserve buffer begin
-        p = Ptr{typeof(x)}(pointer(buffer))
-        unsafe_store!(p, x)
-    end
-    @inbounds consume(io, sizeof(x))
-    return sizeof(x)
-end

@@ -103,6 +103,14 @@ end
 
 using .IOErrorKinds: IOErrorKind
 
+# We never use the mutability here - this is so it's stored outline in
+# IOError, meaning its size is just one pointer
+mutable struct InnerIOError
+    # Eventually, we want to add a payload field which is a large union here,
+    # such that we can carry arbitrary information along with the error.
+    kind::IOErrorKind
+end
+
 """
     IOError
 
@@ -128,7 +136,13 @@ Seeking operation out of bounds
 ```
 """
 struct IOError <: Exception
-    kind::IOErrorKind
+    inner::InnerIOError
+end
+
+IOError(kind::IOErrorKind) = IOError(InnerIOError(kind))
+
+function Base.getproperty(err::IOError, sym::Symbol)
+    return sym === :kind ? getfield(err, :inner).kind : getfield(err, sym)
 end
 
 function Base.showerror(io::IO, err::IOError)
@@ -178,7 +192,6 @@ function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
     @inbounds return x[1:len]
 end
 
-
 """
     abstract type AbstractBufReader end
 
@@ -221,7 +234,7 @@ abstract type AbstractBufReader end
 An `AbstractBufWriter` is an IO-like type which exposes mutable memory
 to the user, which can be written to directly.
 This can help avoiding intermediate allocations when writing.
-For example, integers can usually be written to buffered writers without allocating. 
+For example, integers can usually be written to buffered writers without allocating.
 
 !!! warning
     By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
@@ -474,15 +487,6 @@ function skip_exact(io::AbstractBufReader, n::Integer)
 end
 
 #########################
-
-# Types where write(io, x) is the same as copying x
-const PLAIN_TYPES = (
-    Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int128, UInt128,
-    Bool,
-    Float16, Float32, Float64,
-)
-
-const PlainTypes = Union{PLAIN_TYPES...}
 
 """
     get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
