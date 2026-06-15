@@ -612,13 +612,6 @@ function Base.write(io::AbstractBufWriter, c::Char)
     return
 end
 
-as_unsigned(x::PlainTypes) = as_unsigned(x, Val{sizeof(x)}())
-as_unsigned(x, ::Val{1}) = reinterpret(UInt8, x)
-as_unsigned(x, ::Val{2}) = reinterpret(UInt16, x)
-as_unsigned(x, ::Val{4}) = reinterpret(UInt32, x)
-as_unsigned(x, ::Val{8}) = reinterpret(UInt64, x)
-as_unsigned(x, ::Val{16}) = reinterpret(UInt128, x)
-
 Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)
 Base.seekend(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, filesize(x))
 

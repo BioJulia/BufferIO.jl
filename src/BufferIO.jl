@@ -35,7 +35,7 @@ export AbstractBufReader,
     write_repeated,
     relative_seek
 
-public LineViewIterator
+public LineViewIterator, PrimitiveSerialization, SerializablePrimitive, NonSerializablePrimitive, NotAPrimitiveType
 
 """
     module IOErrorKinds
@@ -161,6 +161,46 @@ function Base.showerror(io::IO, err::IOError)
         "Unsupported operation on closed IO"
     end
     return print(io, str)
+end
+
+struct LittleEndian end
+struct BigEndian end
+
+@static if ENDIAN_BOM === 0x04030201
+    to_host(::LittleEndian, x) = x
+    to_host(::BigEndian, x) = Core.Intrinsics.bswap_int(x)
+else
+    to_host(::BigEndian, x) = x
+    to_host(::LittleEndian, x) = Core.Intrinsics.bswap_int(x)
+end
+
+"""
+    abstract type PrimitiveSerialization
+
+Trait type to control if a primitive type is serializable by loading its binary represenation
+directly from a pointer.
+For example, `Int32` is a serializable primitive, because its serialization is identical to
+its in-memory binary representation.
+
+`PrimitiveSerialization(::Type)` defaults to `NonSerializablePrimitive()`.
+Implement `PrimitiveSerialization(::T) = PrimitiveSerialization()` for your primitive `T`
+to enable BufferIO de/serialization.
+
+See also: [`SerializablePrimitive`](@ref), [`NonSerializablePrimitive`](@ref)
+"""
+abstract type PrimitiveSerialization end
+struct SerializablePrimitive <: PrimitiveSerialization end
+struct NonSerializablePrimitive <: PrimitiveSerialization end
+
+PrimitiveSerialization(::Type) = NonSerializablePrimitive()
+
+function PrimitiveSerialization(::Union{
+        Type{Bool},
+        Type{UInt8}, Type{UInt16}, Type{UInt32}, Type{UInt64}, Type{UInt128},
+        Type{Int8}, Type{Int16}, Type{Int32}, Type{Int64}, Type{Int128},
+        Type{Float16}, Type{Float32}, Type{Float64},
+    })
+    SerializablePrimitive()
 end
 
 # Internal type!
@@ -378,6 +418,41 @@ function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemo
 end
 
 """
+    get_nonempty_buffer(
+        io::AbstractBufReader, min_size::Int
+    )::Union{ImmutableMemoryView{UInt8}, Nothing, HitBufferLimit}
+
+Get a buffer of at least size `max(1, min_size)`. Return `nothing` if `io` hits EOF,
+and return `HitBufferLimit()` if `io` cannot buffer up to the minimum size.
+"""
+function get_nonempty_buffer(io::AbstractBufReader, min_size::Int)::Union{ImmutableMemoryView{UInt8}, Nothing, HitBufferLimit}
+    min_size = max(1, min_size)
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    length(buffer) ≥ min_size && return buffer
+    return _get_nonempty_buffer(io, min_size)
+end
+
+@noinline function _get_nonempty_buffer(io::AbstractBufReader, min_size::Int)
+    # Do not pass buffer or buffersize to keep stack args small in fast path
+    while true
+        buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+        buffer_length = length(buffer)
+        new_bytes = fill_buffer(io)::Union{Int, Nothing}
+        # Handle cases of EOF or where buffer cannot grow
+        new_bytes === nothing && return nothing
+        iszero(new_bytes) && return HitBufferLimit()
+        buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+        # Guard against infinite loop in case of bad implementation of fill_buffer or get_buffer
+        new_buffer_length = length(buffer)
+        if new_buffer_length ≤ buffer_length
+            error("Invalid implementation of fill_buffer for AbstractBufReader")
+        end
+        new_buffer_length ≥ min_size && return buffer
+        buffer_length = new_buffer_length
+    end
+end
+
+"""
     read_into!(x::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 
 Read bytes into the beginning of `dst`, returning the number of bytes read.
@@ -473,6 +548,104 @@ function skip_exact(io::AbstractBufReader, n::Integer)
     return nothing
 end
 
+"""
+    read_primitive(io::AbstractBufReader, T::Type, ::Union{BigEndian, LittleEndian})::T
+
+Read a value of the primitive type `T` from `io`. `T` must implement `SerializablePrimitive`.
+Throw an `IOError` with errorkind `IOErrorKinds.EOF` if there is not `sizeof(T)` bytes in
+`io`.
+
+The endianness of the serialized data is given by the argument; if this differs from the platform,
+the value will be byte swapped.
+
+If `io`'s buffer is un-growable and cannot hold a full `T`, this may allocate an intermediate buffer.
+
+Endianness is typically format-specific. Custom `B` implementing `AbstractBufReader`
+may want to define a custom convenience method
+`Base.read(io::B, T::Type) = BufferIO.read_primitive(io, T, BufferIO.LittleEndian())`
+or similar, to avoid repeatedly having to repeat the endianness for every call.
+"""
+function read_primitive(io::AbstractBufReader, T::Type, endianness::Union{BigEndian, LittleEndian})
+    if !isprimitivetype(T)
+        throw(ArgumentError("Expected T to be primitive type"))
+    end
+    read_primitive(PrimitiveSerialization(T), io, T, endianness)
+end
+
+@inline function read_primitive(::SerializablePrimitive, io::AbstractBufReader, T::Type, endianness::Union{BigEndian, LittleEndian})
+    sz = UInt(sizeof(T))::UInt
+    buffer = buffer_at_least(io, sz)
+    result = GC.@preserve buffer unsafe_load(Ptr{T}(pointer(buffer)))
+    result = to_host(endianness, result)
+    @inbounds consume(io, sz % Int)
+    return result
+end
+
+#=
+# This throws if EOF, and since the throw happens in the slow, outlined path,
+# this is slightly more efficient than the try* version in the common case.
+function buffer_at_least(io::AbstractBufReader, min_size::UInt)::ImmutableMemoryView{UInt8}
+    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+    buffer_size = length(buffer) % UInt
+    buffer_size ≥ min_size && return buffer
+    # Outline cold path
+    return @noinline _buffer_at_least_slowpath(io, min_size, buffer)
+end
+
+function _buffer_at_least_slowpath(io::AbstractBufReader, min_size::UInt, buffer::ImmutableMemoryView{UInt8})
+    res = @inline _try_buffer_at_least_slowpath(io, min_size, buffer)
+    # Throw in cold path so we don't have to handle the error case in the fast path
+    return res === nothing ? throw(IOError(IOErrorKinds.EOF)) : res
+end
+
+# TODO: HitBufferLimit is an internal type. This needs to be publizised first, or this should return sometihng else
+function try_buffer_at_least(io::AbstractBufReader, min_size::UInt)::Union{ImmutableMemoryView{UInt8}, Nothing, HitBufferLimit}
+    buffer = get_nonempty_buffer(io, min_size % Int)
+    if buffer 
+    
+    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+    buffer_size = length(buffer) % UInt
+    buffer_size ≥ min_size && return buffer
+    # Outline cold path
+    return @noinline _try_buffer_at_least_slowpath(io, min_size, buffer)
+end
+
+function _try_buffer_at_least_slowpath(io::AbstractBufReader, min_size::UInt, buffer::ImmutableMemoryView{UInt8})
+    buffer_size = length(buffer) % UInt
+    while buffer_size < min_size
+        new_bytes = fill_buffer(io)
+        # If the buffer cannot hold a single primitive type, we move to an even colder path.
+        # This is very unlikely, and this colder path is quite inefficient, so outline it again.
+        if isnothing(new_bytes)
+            return @noinline _try_buffer_at_least_slower_path(io, min_size)
+        end
+        # Return nothing to signal EOF
+        iszero(new_bytes) && return nothing
+        buffer = get_buffer(io)
+        # Validate correct fill_buffer impl to avoid infinite loop
+        new_buffer_size = length(buffer) % UInt
+        if new_buffer_size ≤ buffer_size
+            error("Bad implementation of fill_buffer for AbstractBufReader type")
+        end
+        buffer_size = new_buffer_size
+    end
+    return buffer
+end
+
+# Slower path: Buffer cannot hold a full T. We allocate a temporary, external buffer to hold it.
+# This would essentially never be hit for most types.
+function _try_buffer_at_least_slower_path(io::AbstractBufReader, min_size::UInt)
+    memory = MemoryView(Memory{UInt8}(undef, min_size % Int))
+    remaining = memory
+    while !isempty(remaining)
+        buffer = @something get_nonempty_buffer(io) return nothing
+        copied = copyto_start!(remaining, buffer)
+        remaining = @inbounds remaining[copied+1:end]
+        @inbounds consume(io, copied)
+    end
+    return ImmutableMemoryView(memory)
+end
+=#
 #########################
 
 # Types where write(io, x) is the same as copying x
