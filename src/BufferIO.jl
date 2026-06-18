@@ -33,9 +33,13 @@ export AbstractBufReader,
     skip_exact,
     takestring!,
     write_repeated,
-    relative_seek
+    relative_seek,
+    LittleEndian,
+    BigEndian,
+    load,
+    store
 
-public LineViewIterator, PrimitiveSerialization, SerializablePrimitive, NonSerializablePrimitive, NotAPrimitiveType
+public LineViewIterator, PrimitiveSerialization, SerializablePrimitive, WriteOnlyPrimitive, NonSerializablePrimitive
 
 """
     module IOErrorKinds
@@ -165,46 +169,92 @@ end
 
 struct LittleEndian end
 struct BigEndian end
+const Endianness = Union{LittleEndian, BigEndian}
 
+# Note that this is separate from Base.bswap since this works for _all_
+# primitive types.
 @static if ENDIAN_BOM === 0x04030201
-    to_host(::LittleEndian, x) = x
-    to_host(::BigEndian, x) = Core.Intrinsics.bswap_int(x)
+    byte_order(::LittleEndian, x) = x
+    byte_order(::BigEndian, x) = Core.Intrinsics.bswap_int(x)
 else
-    to_host(::BigEndian, x) = x
-    to_host(::LittleEndian, x) = Core.Intrinsics.bswap_int(x)
+    byte_order(::BigEndian, x) = x
+    byte_order(::LittleEndian, x) = Core.Intrinsics.bswap_int(x)
 end
 
 """
     abstract type PrimitiveSerialization
 
-Trait type to control if a primitive type is serializable by loading its binary represenation
-directly from a pointer.
-For example, `Int32` is a serializable primitive, because its serialization is identical to
-its in-memory binary representation.
+Trait type to control if a primitive type is readable by loading and/or storing
+its binary represenation directly using a pointer.
 
-`PrimitiveSerialization(::Type)` defaults to `NonSerializablePrimitive()`.
-Implement `PrimitiveSerialization(::T) = PrimitiveSerialization()` for your primitive `T`
+Currently, three options are available:
+* `NonSerializablePrimitive` for types which require custom serialization
+  such as `Char`, whose serialization depends on the number of UTF8 codepoints
+* `WriteOnlyPrimitive` for types whose serialization matches its in-memory
+  representation, but where not all bitpatterns are valid instances. Hence, they
+  require custom loading, but storing an instance can be done with a pointer store.
+* `SerializablePrimitive` for types whose serialization match its in-memory
+  representation, and where all bitpatterns are valid.
+
+`PrimitiveSerialization(::Type)` defaults to `NonSerializablePrimitive()`, except for
+zero-sized structs, where it defaults to `SerializablePrimitive`.
+Implement `PrimitiveSerialization(::T) = ReadablePrimitive()` for your primitive `T`
 to enable BufferIO de/serialization.
 
-See also: [`SerializablePrimitive`](@ref), [`NonSerializablePrimitive`](@ref)
+See also: [`ReadablePrimitive`](@ref), [`NonReadablePrimitive`](@ref)
 """
 abstract type PrimitiveSerialization end
+
+"""
+    SerializablePrimitive <: PrimitiveSerialization
+
+Trait object controlling BufferIO serializability of primitive types.
+See [`PrimitiveSerialization`](@ref) for more details.
+"""
 struct SerializablePrimitive <: PrimitiveSerialization end
+
+"""
+    NonSerializablePrimitive <: PrimitiveSerialization
+
+Trait object controlling BufferIO serializability of primitive types.
+See [`PrimitiveSerialization`](@ref) for more details.
+"""
 struct NonSerializablePrimitive <: PrimitiveSerialization end
 
-PrimitiveSerialization(::Type) = NonSerializablePrimitive()
+"""
+    WriteOnlyPrimitive <: PrimitiveSerialization
 
-function PrimitiveSerialization(::Union{
-        Type{Bool},
-        Type{UInt8}, Type{UInt16}, Type{UInt32}, Type{UInt64}, Type{UInt128},
-        Type{Int8}, Type{Int16}, Type{Int32}, Type{Int64}, Type{Int128},
-        Type{Float16}, Type{Float32}, Type{Float64},
-    })
-    SerializablePrimitive()
+Trait object controlling BufferIO serializability of primitive types.
+See [`PrimitiveSerialization`](@ref) for more details.
+"""
+struct WriteOnlyPrimitive <: PrimitiveSerialization end
+
+function PrimitiveSerialization(T::Type)
+    if isstructtype(T) && !ismutabletype(T)
+        sz = sizeof(T)
+        iszero(sz) && return SerializablePrimitive()
+    end
+    if !isprimitivetype(T)
+        throw(ArgumentError("Type must be a primitive type, or a zero-sized immutable struct"))
+    end
+    return NonSerializablePrimitive()
 end
 
 # Internal type!
 struct HitBufferLimit end
+
+function PrimitiveSerialization(
+        ::Union{
+            # Julia has special codegen to make bool pointer-loadable without
+            # being able to create invalid instances, so this is correct.
+            Type{Bool},
+            Type{UInt8}, Type{UInt16}, Type{UInt32}, Type{UInt64}, Type{UInt128},
+            Type{Int8}, Type{Int16}, Type{Int32}, Type{Int64}, Type{Int128},
+            Type{Float16}, Type{Float32}, Type{Float64},
+        }
+    )
+    return SerializablePrimitive()
+end
 
 function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
     len = if isempty(x)
@@ -261,7 +311,7 @@ abstract type AbstractBufReader end
 An `AbstractBufWriter` is an IO-like type which exposes mutable memory
 to the user, which can be written to directly.
 This can help avoiding intermediate allocations when writing.
-For example, integers can usually be written to buffered writers without allocating. 
+For example, integers can usually be written to buffered writers without allocating.
 
 !!! warning
     By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
@@ -417,6 +467,39 @@ function get_nonempty_buffer(x::AbstractBufReader)::Union{Nothing, ImmutableMemo
     return isempty(buf) ? nothing : buf
 end
 
+function get_minimum_buffer(
+        io::AbstractBufReader,
+        min_size::UInt
+    )::Union{IOError, ImmutableMemoryView{UInt8}}
+    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+    (length(buffer) % UInt) ≥ min_size && return buffer
+    return get_minimum_buffer_slowpath(io, min_size)
+end
+
+@noinline function get_minimum_buffer_slowpath(
+        io::AbstractBufReader,
+        min_size::UInt
+    )::Union{IOError, ImmutableMemoryView{UInt8}}
+    # Do not pass buffer or buffersize to keep stack args small in fast path
+    while true
+        buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+        buffer_length = length(buffer) % UInt
+        new_bytes = fill_buffer(io)::Union{Int, Nothing}
+        # Handle cases of EOF or where buffer cannot grow
+        new_bytes === nothing && return IOError(IOErrorKinds.BufferTooShort)
+        iszero(new_bytes) && return IOError(IOErrorKinds.EOF)
+        buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+        # Guard against infinite loop in case of bad implementation of fill_buffer or get_buffer
+        new_buffer_length = length(buffer) % UInt
+        if new_buffer_length ≤ buffer_length
+            error("Invalid implementation of fill_buffer for AbstractBufReader")
+        end
+        new_buffer_length ≥ min_size && return buffer
+        buffer_length = new_buffer_length
+    end
+    error("unreachable")
+end
+
 """
     get_nonempty_buffer(
         io::AbstractBufReader, min_size::Int
@@ -549,113 +632,68 @@ function skip_exact(io::AbstractBufReader, n::Integer)
 end
 
 """
-    read_primitive(io::AbstractBufReader, T::Type, ::Union{BigEndian, LittleEndian})::T
+    load(
+        io::AbstractBufReader, T::Type, ::Endianness
+    )::T
 
-Read a value of the primitive type `T` from `io`. `T` must implement `SerializablePrimitive`.
-Throw an `IOError` with errorkind `IOErrorKinds.EOF` if there is not `sizeof(T)` bytes in
-`io`.
+Load a value of `T` from `io`, and consume the bytes from `io`.
+If `io` does not contain enough bytes, throw an `IOError` with kind `EOF`.
+If the maximum buffer size is smaller than required to load a `T`, throw
+`IOError` with kind `BufferTooShort`.
+
+# Examples
+```jldoctest
+julia> io = CursorReader(b"abcde");
+
+julia> load(io, UInt32, LittleEndian())
+0x64636261
+
+julia> load(io, UInt32, LittleEndian()) # only 1 byte left
+ERROR: End of file
+[...]
+```
+
+# Extended help
+`T` must be a zero-sized immutable struct or a primitive type.
+Structs are intentionally not supported, and requires an external serialization package.
+`PrimitiveSerialization(T)` is used to determine if the value can be loaded,
+and `Base.sizeof(T)` is used to determine how many bytes to load.
 
 The endianness of the serialized data is given by the argument; if this differs from the platform,
 the value will be byte swapped.
-
-If `io`'s buffer is un-growable and cannot hold a full `T`, this may allocate an intermediate buffer.
-
-Endianness is typically format-specific. Custom `B` implementing `AbstractBufReader`
+Endianness is typically format-specific. Custom types `B` implementing `AbstractBufReader`
 may want to define a custom convenience method
-`Base.read(io::B, T::Type) = BufferIO.read_primitive(io, T, BufferIO.LittleEndian())`
+`BufferIO.load(io::B, T::Type) = load(io, T, BufferIO.LittleEndian())`
 or similar, to avoid repeatedly having to repeat the endianness for every call.
+
+Custom primitive types `C` can implement
+`load(::AbstractBufReader, ::Type{C}, ::Endianness)`. If the implementation simply
+loads `sizeof(C)` through a pointer, implementing `PrimitiveSerialization(T)` instead will
+make the generic `load` method work.
 """
-function read_primitive(io::AbstractBufReader, T::Type, endianness::Union{BigEndian, LittleEndian})
-    if !isprimitivetype(T)
-        throw(ArgumentError("Expected T to be primitive type"))
-    end
-    read_primitive(PrimitiveSerialization(T), io, T, endianness)
+function load(io::AbstractBufReader, T::Type, endianness::Endianness)
+    value = peek(io, T, endianness)
+    @inbounds consume(io, sizeof(T))
+    return value
 end
 
-@inline function read_primitive(::SerializablePrimitive, io::AbstractBufReader, T::Type, endianness::Union{BigEndian, LittleEndian})
-    sz = UInt(sizeof(T))::UInt
-    buffer = buffer_at_least(io, sz)
-    result = GC.@preserve buffer unsafe_load(Ptr{T}(pointer(buffer)))
-    result = to_host(endianness, result)
-    @inbounds consume(io, sz % Int)
-    return result
+function load(io::AbstractBufWriter, ::Type{UInt8})
+    value = peek(io, UInt8)
+    @inbounds consume(io, 1)
+    return value
 end
 
-#=
-# This throws if EOF, and since the throw happens in the slow, outlined path,
-# this is slightly more efficient than the try* version in the common case.
-function buffer_at_least(io::AbstractBufReader, min_size::UInt)::ImmutableMemoryView{UInt8}
-    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
-    buffer_size = length(buffer) % UInt
-    buffer_size ≥ min_size && return buffer
-    # Outline cold path
-    return @noinline _buffer_at_least_slowpath(io, min_size, buffer)
+"""
+    load_into!(io::AbstractBufWriter, mem::MutableMemory{T}, endianness::Endianness)::Int
+
+Returns number of elements loaded. Obtain bytes by multiplying with sizeof(T).
+Document serializability
+Similar to calling load repeatedly, but may be more efficient
+"""
+function load_into!(io::AbstractBufWriter, mem::MutableMemoryView{T}, endianness::Endianness) where T
 end
 
-function _buffer_at_least_slowpath(io::AbstractBufReader, min_size::UInt, buffer::ImmutableMemoryView{UInt8})
-    res = @inline _try_buffer_at_least_slowpath(io, min_size, buffer)
-    # Throw in cold path so we don't have to handle the error case in the fast path
-    return res === nothing ? throw(IOError(IOErrorKinds.EOF)) : res
-end
-
-# TODO: HitBufferLimit is an internal type. This needs to be publizised first, or this should return sometihng else
-function try_buffer_at_least(io::AbstractBufReader, min_size::UInt)::Union{ImmutableMemoryView{UInt8}, Nothing, HitBufferLimit}
-    buffer = get_nonempty_buffer(io, min_size % Int)
-    if buffer 
-    
-    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
-    buffer_size = length(buffer) % UInt
-    buffer_size ≥ min_size && return buffer
-    # Outline cold path
-    return @noinline _try_buffer_at_least_slowpath(io, min_size, buffer)
-end
-
-function _try_buffer_at_least_slowpath(io::AbstractBufReader, min_size::UInt, buffer::ImmutableMemoryView{UInt8})
-    buffer_size = length(buffer) % UInt
-    while buffer_size < min_size
-        new_bytes = fill_buffer(io)
-        # If the buffer cannot hold a single primitive type, we move to an even colder path.
-        # This is very unlikely, and this colder path is quite inefficient, so outline it again.
-        if isnothing(new_bytes)
-            return @noinline _try_buffer_at_least_slower_path(io, min_size)
-        end
-        # Return nothing to signal EOF
-        iszero(new_bytes) && return nothing
-        buffer = get_buffer(io)
-        # Validate correct fill_buffer impl to avoid infinite loop
-        new_buffer_size = length(buffer) % UInt
-        if new_buffer_size ≤ buffer_size
-            error("Bad implementation of fill_buffer for AbstractBufReader type")
-        end
-        buffer_size = new_buffer_size
-    end
-    return buffer
-end
-
-# Slower path: Buffer cannot hold a full T. We allocate a temporary, external buffer to hold it.
-# This would essentially never be hit for most types.
-function _try_buffer_at_least_slower_path(io::AbstractBufReader, min_size::UInt)
-    memory = MemoryView(Memory{UInt8}(undef, min_size % Int))
-    remaining = memory
-    while !isempty(remaining)
-        buffer = @something get_nonempty_buffer(io) return nothing
-        copied = copyto_start!(remaining, buffer)
-        remaining = @inbounds remaining[copied+1:end]
-        @inbounds consume(io, copied)
-    end
-    return ImmutableMemoryView(memory)
-end
-=#
 #########################
-
-# Types where write(io, x) is the same as copying x
-const PLAIN_TYPES = (
-    Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int128, UInt128,
-    Bool,
-    Float16, Float32, Float64,
-)
-
-const PlainTypes = Union{PLAIN_TYPES...}
 
 """
     get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
@@ -687,6 +725,134 @@ function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemory
     grow_buffer(x)
     buffer = get_buffer(x)::MutableMemoryView{UInt8}
     return isempty(buffer) ? nothing : buffer
+end
+
+function get_minimum_buffer(io::AbstractBufWriter, min_size::UInt)::Union{IOError, MutableMemoryView{UInt8}}
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    (length(buffer) % UInt) ≥ min_size && return buffer
+    return get_minimum_buffer_slowpath(io, min_size)
+end
+
+@noinline function get_minimum_buffer_slowpath(
+        io::AbstractBufWriter,
+        min_size::UInt
+    )::Union{IOError, MutableMemoryView{UInt8}}
+    # Do not pass buffer or buffersize to keep stack args small in fast path
+    while true
+        buffer = get_buffer(io)::MutableMemoryView{UInt8}
+        buffer_length = length(buffer) % UInt
+        new_bytes = grow_buffer(io)::Int
+        iszero(new_bytes) && return IOError(IOErrorKinds.BufferTooShort)
+        buffer = get_buffer(io)::MutableMemoryView{UInt8}
+        # Guard against infinite loop in case of bad implementation of fill_buffer or get_buffer
+        new_buffer_length = length(buffer) % UInt
+        if new_buffer_length ≤ buffer_length
+            error("Invalid implementation of fill_buffer for AbstractBufReader")
+        end
+        new_buffer_length ≥ min_size && return buffer
+        buffer_length = new_buffer_length
+    end
+    error("unreachable")
+end
+
+"""
+    store(io::AbstractBufWriter, x, endianness::Endianness)::Nothing
+
+Store `x` into `io`, and consume the stored bytes from `io`.
+If the buffer cannot grow to the size of `x`, throw an `IOError` with kind `BufferTooShort`.
+
+# Extended help
+`T` must be a zero-sized immutable struct or a primitive type.
+Structs are intentionally not supported, and requires an external serialization package.
+`PrimitiveSerialization(T)` is used to determine if the value can be loaded,
+and `Base.sizeof(T)` is used to determine how many bytes to load.
+
+The endianness of the serialized data is given by the argument; if this differs from the platform,
+the value will be byte swapped.
+Endianness is typically format-specific. Custom types `W` implementing `AbstractBufWriter`
+may want to define a custom convenience method
+`BufferIO.store(io::W, x::SomeType) = store(io, x, BufferIO.LittleEndian())`
+or similar, to avoid repeatedly having to repeat the endianness for every call.
+
+Custom primitive types `C` can implement
+`store(::AbstractBufWriter, x::C, ::Endianness)`. If the implementation simply
+loads `sizeof(C)` through a pointer, implementing `PrimitiveSerialization(T)` instead will
+make the generic `store` method work.
+"""
+function store(io::AbstractBufWriter, x, endianness::Endianness)
+    return _store(PrimitiveSerialization(typeof(x)), io, x, endianness)
+end
+
+function store(io::AbstractBufWriter, x::UInt8, endianness::Endianness)
+    return store(io, x)
+end
+
+function store(io::AbstractBufWriter, x::UInt8)
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    isempty(buffer) && return @noinline _store(io, x)
+    @inbounds buffer[1] = x
+    @inbounds consume(io, 1)
+    return nothing
+end
+
+function _store(io::AbstractBufWriter, x::UInt8)
+    grow_buffer(io)
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    isempty(buffer) && throw(IOError(IOErrorKinds.BufferTooShort))
+    @inbounds buffer[1] = x
+    @inbounds consume(io, 1)
+    return nothing
+end
+
+function _store(
+        ::Union{SerializablePrimitive, WriteOnlyPrimitive},
+        io::AbstractBufWriter,
+        x::T,
+        endianness::Endianness
+    ) where {T}
+    sz = sizeof(T)
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    if iszero(sz) || length(buffer) ≥ sz
+        x = byte_order(endianness, x)
+        GC.@preserve buffer unsafe_store!(Ptr{T}(pointer(buffer)), x)
+    else
+        @noinline _store_slow_path(io, x, endianness)
+    end
+    @inbounds consume(io, sz)
+    nothing
+end
+
+function _store_slow_path(io::AbstractBufWriter, x::T, endianness::Endianness) where {T}
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    sz = sizeof(T)::Int
+    while length(buffer) ≤ sz
+        n_grown = grow_buffer(io)::Int
+        iszero(n_grown) && throw(IOError(IOErrorKinds.BufferTooShort))
+        new_buffer = get_buffer(io)::MutableMemoryView{UInt8}
+        if n_grown < 0 || length(new_buffer) != length(buffer) + n_grown
+            error("Bad grow_buffer implementation")
+        end
+        buffer = new_buffer
+    end
+    x = byte_order(endianness, x)
+    GC.@preserve buffer unsafe_store!(Ptr{T}(pointer(buffer)), x)
+end
+
+store(io::AbstractBufWriter, c::Char, ::Endianness) = store(io, c)
+
+function store(io::AbstractBufWriter, c::Char)
+    ncu = ncodeunits(c)
+    buffer = get_minimum_buffer(io, ncu % UInt)
+    buffer isa IOError && throw(buffer)
+    u = bswap(reinterpret(UInt32, c))
+    i = 1
+    while true
+        buffer[i] = u % UInt8
+        u >>>= 8
+        iszero(u) && return
+        i += 1
+    end
+    return
 end
 
 ##########################

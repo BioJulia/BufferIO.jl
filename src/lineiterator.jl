@@ -90,7 +90,7 @@ function Base.iterate(x::LineViewIterator, state::Int = 0)
     state > 0 && consume(x.reader, state)
 
     pos = buffer_until(x.reader, 0x0a)
-    if pos isa HitBufferLimit
+    if pos isa BufferTooSmall
         throw(ArgumentError("Buffer too short to buffer a whole line, and cannot be expanded."))
     elseif pos === nothing
         # No more newlines until EOF. Close as we reached EOF
@@ -110,7 +110,7 @@ end
 # Fill buffer of `x` until it contains a `byte`, then return the index
 # in the buffer of that byte.
 # If `x` doesn't contain `byte` until EOF, returned value is nothing.
-function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLimit, Nothing}
+function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, BufferTooSmall, Nothing}
     scan_from = 1
     buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
     isnothing(buffer) && return nothing
@@ -120,7 +120,7 @@ function buffer_until(x::AbstractBufReader, byte::UInt8)::Union{Int, HitBufferLi
         scan_from = length(buffer) + 1
         n_filled = fill_buffer(x)
         if n_filled === nothing
-            return HitBufferLimit()
+            return BufferTooSmall()
         elseif iszero(n_filled)
             return nothing
         else
