@@ -103,14 +103,8 @@ end
 
 using .IOErrorKinds: IOErrorKind
 
-# We never use the mutability here - this is so it's stored outline in
-# IOError, meaning its size is just one pointer
-mutable struct InnerIOError
-    # Eventually, we want to add a payload field which is a large union here,
-    # such that we can carry arbitrary information along with the error.
-    kind::IOErrorKind
-end
-
+# NB: This is mutable because I might want to add more data in the future,
+# but I want to keep this as being only pointer-sized.
 """
     IOError
 
@@ -135,14 +129,8 @@ julia> try
 Seeking operation out of bounds
 ```
 """
-struct IOError <: Exception
-    inner::InnerIOError
-end
-
-IOError(kind::IOErrorKind) = IOError(InnerIOError(kind))
-
-function Base.getproperty(err::IOError, sym::Symbol)
-    return sym === :kind ? getfield(err, :inner).kind : getfield(err, sym)
+mutable struct IOError <: Exception
+    kind::IOErrorKind
 end
 
 function Base.showerror(io::IO, err::IOError)

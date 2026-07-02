@@ -19,13 +19,13 @@ end
 
 Create an iterator of lines of `x`.
 The returned views are `ImmutableMemoryView{UInt8}` into `x`'s buffer.
-Use the package StringViews.jl to turn the lines into `AbstractString`s.
+Use `StringView` to turn the lines into `AbstractString`s.
 
 The views may be invalidated when mutating `x`, which may happen on subsequent iterations
 of the iterator. See extended help for more precise semantics.
 
 The `chomp` keyword (default: `true`), controls whether
-any trailing `\\r\\n` or `\\n` bytes should be removed from the output.
+the final trailing `\\r\\n` or `\\n` bytes should be removed from the output.
 
 # Examples
 ```jldoctest
@@ -63,6 +63,7 @@ The resulting iterator `itr::LineViewIterator`'s state is guaranteed, public int
 
 * `iterate(itr)` is equivalent to `iterate(itr, 0)`
 * `iterate(itr, n::Int)` is equivalent to `consume(itr.reader, n); iterate(itr)`
+  if `n` > 0
 * The state returned by `iterate` is an `Int` equal to the length of the line
   emitted, plus the number of stripped `\\r\\n` or `\\n` bytes, if `chomp`.
 
@@ -193,7 +194,7 @@ Base.eltype(::Type{MemLineViewIterator}) = ImmutableMemoryView{UInt8}
 
 Return a stateless iterator of the lines in `x`.
 The returned views are `ImmutableMemoryView{UInt8}` views into `x`.
-Use the package StringViews.jl to turn them into `AbstractString`s.
+Use `StringView` to turn them into `AbstractString`s.
 
 A line is defined as all data up to and
 including `\\n` (0x0a) or `\\r\\n` (0x0d 0x0a), or the remainder of the data in `io` if

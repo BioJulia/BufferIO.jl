@@ -1,137 +1,17 @@
 """
     ByteVector <: DenseVector{UInt8}
 
-A re-implementation of `Vector{UInt8}` that only supports a subset of its methods.
-In future minor releases, this may change to be an alias of `Vector{UInt8}`.
-
-Note that `String(x::ByteVector)` will truncate `x`, to mirror the behaviour of
-`String(::Vector{UInt8})`. It is recommended to use `takestring!` instead.
-
-All Base methods implemented for `ByteVector` is guaranteed to have the same semantics
-as those for `Vector`. Futhermore, `ByteVector` supports:
-* `takestring!(::ByteVector)` even on Julia < 1.13, whereas `takestring!(::Vector{UInt8})`
-  is only defined from Julia 1.13 onwards.
+Alias of `Vector{UInt8}`.
 """
-mutable struct ByteVector <: DenseVector{UInt8}
-    ref::MemoryRef{UInt8}
-    len::Int
+const ByteVector = Vector{UInt8}
 
-    global function unsafe_from_parts(ref::MemoryRef{UInt8}, len::Int)
-        return new(ref, len)
-    end
-end
-
-function ByteVector()
-    return unsafe_from_parts(memoryref(Memory{UInt8}()), 0)
-end
-
-function ByteVector(::UndefInitializer, len::Int)
-    return unsafe_from_parts(memoryref(Memory{UInt8}(undef, len)), len)
-end
-
-@inline function _takestring!(v::ByteVector)
-    s = GC.@preserve v unsafe_string(pointer(v), length(v))
-    # We defensively truncate here and reallocate the memory.
-    # Currently this is inefficient, but I want to be able to do zero-copy string creation
-    # in the future, and that will only be doable without breakage by reallocating the memory.
-    empty!(v)
-    v.ref = memoryref(Memory{UInt8}()) # note: a zero-sized memory usually does not allocate
-    return s
-end
-
-# This is for forward compatibility so we can switch in Vector{UInt8} in the future.
-Base.String(v::ByteVector) = _takestring!(v)
-
-@static if hasmethod(parent, Tuple{MemoryRef})
-    get_memory(v::ByteVector) = parent(v.ref)
+@static if VERSION ≥ v"1.12.0-DEV.966"
+    get_memory(v::Vector{UInt8}) = parent(Base.cconvert(Ptr, v))
 else
-    get_memory(v::ByteVector) = v.ref.mem
+    get_memory(v::Vector{UInt8}) = v.ref.mem
 end
 
-Base.size(x::ByteVector) = (x.len,)
-Base.length(x::ByteVector) = x.len
-
-Base.empty!(x::ByteVector) = (x.len = 0; x)
-
-function Base.resize!(x::ByteVector, n::Integer)
-    n = Int(n)::Int
-    if (n % UInt) > UInt(2)^48
-        throw(ArgumentError("New length must be in 0:2^48"))
-    end
-    if n > length(get_memory(x))
-        memsize = overallocation_size(n % UInt)
-        newmem = Memory{UInt8}(undef, memsize)
-        unsafe_copyto!(MemoryView(newmem), MemoryView(x))
-        x.ref = memoryref(newmem)
-        x.len = n
-    end
-    x.len = n
-    return x
-end
-
-function Base.getindex(v::ByteVector, i::Integer)
-    i = Int(i)::Int
-    @boundscheck checkbounds(v, i)
-    ref = @inbounds memoryref(v.ref, i)
-    return @inbounds ref[]
-end
-
-function Base.setindex!(v::ByteVector, x, i::Integer)
-    @boundscheck checkbounds(v, i)
-    xT = convert(UInt8, x)::UInt8
-    ref = @inbounds memoryref(v.ref, i)
-    @inbounds ref[] = xT
-    return v
-end
-
-function Base.iterate(x::ByteVector, i::Int = 1)
-    ((i - 1) % UInt) < (length(x) % UInt) || return nothing
-    return (@inbounds x[i], i + 1)
-end
-
-function Base.push!(x::ByteVector, u::UInt8)
-    ensure_unused_space!(x, UInt(1))
-    xlen = x.len + 1
-    x.len = xlen
-    @inbounds x[xlen] = u
-    return x
-end
-
-function Base.append!(x::ByteVector, mem::MemoryView{UInt8})
-    ensure_unused_space!(x, length(mem) % UInt)
-    start_index = memindex(x.ref) + x.len
-    dst = @inbounds MemoryView(get_memory(x))[start_index:end]
-    @inbounds copyto!(dst, mem)
-    x.len += length(mem)
-    return x
-end
-
-Base.pointer(x::ByteVector) = Ptr{UInt8}(pointer(x.ref))
-
-Base.sizeof(x::ByteVector) = length(x)
-
-MemoryViews.MemoryKind(::Type{ByteVector}) = IsMemory{MutableMemoryView{UInt8}}()
-
-function MemoryViews.MemoryView(v::ByteVector)
-    return MemoryViews.unsafe_from_parts(v.ref, v.len)
-end
-
-function Base.Vector(v::ByteVector)
-    result = Vector{UInt8}(undef, length(v))
-    unsafe_copyto!(MemoryView(result), MemoryView(v))
-    return result
-end
-
-# This internal function creates a Vector from a ByteVector,
-# reusing the memory. If ByteVector is ever turned into an
-# alias of Vector{UInt8}, this should be the identity function
-# TODO: Use Base.wrap once it stabilizes,
-# see https://github.com/JuliaLang/julia/issues/58729
-function to_vector(v::ByteVector)::Vector{UInt8}
-    return GC.@preserve v unsafe_wrap(Array, pointer(v), length(v))
-end
-
-@static if isdefined(Base, :memoryindex)
+@static if VERSION ≥ v"1.13.0-DEV.1289"
     memindex(x::MemoryRef) = Base.memoryindex(x)
 else
     memindex(x::MemoryRef) = Core.memoryrefoffset(x)
@@ -140,7 +20,7 @@ end
 # If C = Current capacity (get_unflushed + get_buffer)
 # Then makes sure new capacity is overallocation(C + additional).
 # Do this by zeroing offset and, if necessary, reallocating memory
-function add_space_with_overallocation!(vec::ByteVector, additional::UInt)
+function add_space_with_overallocation!(vec::Vector{UInt8}, additional::UInt)
     current_mem = get_memory(vec)
     new_size = overallocation_size(capacity(vec) % UInt + additional)
     new_mem = if length(current_mem) ≥ new_size
@@ -149,14 +29,14 @@ function add_space_with_overallocation!(vec::ByteVector, additional::UInt)
         Memory{UInt8}(undef, new_size)
     end
     @inbounds copyto!(@inbounds(MemoryView(new_mem)[1:length(vec)]), MemoryView(vec))
-    vec.ref = memoryref(new_mem)
+    setfield!(vec, :ref, memoryref(new_mem))
     return nothing
 end
 
 # Ensure unused space is at least `space` bytes. Will overallocate
-function ensure_unused_space!(v::ByteVector, space::UInt)
-    us = unused_space(v)
-    us % UInt ≥ space && return nothing
+function ensure_unused_space!(v::Vector{UInt8}, space::UInt)
+    us = unused_space(v) % UInt
+    us ≥ space && return nothing
     space_to_add = space - us
     return @noinline add_space_with_overallocation!(v, space_to_add)
 end
@@ -165,7 +45,7 @@ end
 """
     VecWriter <: AbstractBufWriter
 
-A writer backed by a [`ByteVector`](@ref).
+A writer backed by a [`Vector{UInt8}`](@ref).
 Read the (public) property `.vec` to get the vector back.
 
 This type is useful as an efficient string builder through `takestring!(io)`.
@@ -180,14 +60,8 @@ may be less efficient, if one operation has memory allocation patterns
 that is suboptimal for the other operation.
 
 Create with one of the following constructors:
-* `VecWriter([vec::Vector{UInt8}])`
 * `VecWriter(undef, ::Int)`
-* `VecWriter(::ByteVector)`
-
-Note that, currently, when constructing from a `Vector{UInt8}`,
-the vector is invalidated and the `VecWriter` and its wrapped `ByteVector`
-take shared control of the underlying memory.
-This restriction may be lifted in the future.
+* `VecWriter(::Vector{UInt8})`
 
 A VecWriter has no notion of `filesize`, and cannot be `seek`ed. Instead, resize
 the underlying vector `io.vec`.
@@ -205,9 +79,9 @@ julia> String(vw.vec)
 ```
 """
 struct VecWriter <: AbstractBufWriter
-    vec::ByteVector
+    vec::Vector{UInt8}
 
-    VecWriter(v::ByteVector) = new(v)
+    VecWriter(v::Vector{UInt8}) = new(v)
 end
 
 const DEFAULT_VECWRITER_SIZE = 32
@@ -215,22 +89,7 @@ const DEFAULT_VECWRITER_SIZE = 32
 VecWriter() = VecWriter(undef, DEFAULT_VECWRITER_SIZE)
 
 function VecWriter(::UndefInitializer, len::Int)
-    return VecWriter(empty!(ByteVector(undef, len)))
-end
-
-function VecWriter(v::Vector{UInt8})
-    ref = Base.cconvert(Ptr, v)
-    bytevec = unsafe_from_parts(ref, length(v))
-    # Empty vector and replace its memory. This is a safety
-    # mechanism, to ensure caller doesn't mutate the memory
-    # after construction.
-    # TODO: This is inefficient. It also violates the design
-    # that VecWriter is supposed to mutate the input vector.
-    # The true solution to this is to somehow use Vector
-    # instead of my home-baked ByteVector
-    empty!(v)
-    sizehint!(v, 0; shrink = true)
-    return VecWriter(bytevec)
+    return VecWriter(empty!(Vector{UInt8}(undef, len)))
 end
 
 function get_buffer(x::VecWriter)
@@ -238,12 +97,11 @@ function get_buffer(x::VecWriter)
     return @inbounds MemoryView(get_memory(vec))[first_unused_memindex(vec):end]
 end
 
-# Note: memoryrefoffset is 1-based despite the name
-first_unused_memindex(v::ByteVector) = (length(v) + memindex(v.ref))
+first_unused_memindex(v::Vector{UInt8}) = (length(v) + memindex(v.ref))
 
-unused_space(v::ByteVector) = length(get_memory(v)) - first_unused_memindex(v) + 1
+unused_space(v::Vector{UInt8}) = length(get_memory(v)) - first_unused_memindex(v) + 1
 
-capacity(v::ByteVector) = length(get_memory(v)) - memindex(v.ref) + 1
+capacity(v::Vector{UInt8}) = length(get_memory(v)) - memindex(v.ref) + 1
 
 """
     get_nonempty_buffer(
@@ -301,7 +159,7 @@ function consume(x::VecWriter, n::Int)
         (n % UInt) > (unused_space(vec) % UInt) && throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     veclen = length(vec)
-    vec.len = veclen + n
+    setfield!(vec, :size, (veclen + n,))
     return nothing
 end
 
@@ -314,14 +172,6 @@ end
 Base.close(::VecWriter) = nothing
 Base.flush(::VecWriter) = nothing
 
-if isdefined(Base, :takestring!)
-    Base.takestring!(io::VecWriter) = _takestring!(io.vec)
-    Base.takestring!(v::ByteVector) = _takestring!(v)
-else
-    takestring!(io::VecWriter) = _takestring!(io.vec)
-    takestring!(v::ByteVector) = _takestring!(v)
-end
-
 ## Optimised write implementations
 Base.write(io::VecWriter, x::UInt8) = (push!(io.vec, x); 1)
 
@@ -331,4 +181,10 @@ function Base.unsafe_write(io::VecWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
     GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, n_bytes)
     @inbounds consume(io, n_bytes % Int)
     return n_bytes % Int
+end
+
+@static if VERSION ≥ v"1.13.0-DEV.611"
+    Base.takestring!(io::VecWriter) = String(io.vec)
+else
+    takestring!(io::VecWriter) = String(io.vec)
 end

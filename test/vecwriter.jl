@@ -18,7 +18,6 @@
     @test BufferIO.get_memory(v) !== vmem
 
     @test_throws ArgumentError resize!(v, -1)
-    @test_throws ArgumentError resize!(v, 2^50)
 end
 
 @testset "Construction" begin
