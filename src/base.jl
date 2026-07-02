@@ -468,7 +468,7 @@ end
 function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
     io = VecWriter()
     copyuntil(io, x, delim; keep)
-    return to_vector(io.vec)
+    return io.vec
 end
 
 """
