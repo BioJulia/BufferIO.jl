@@ -92,6 +92,14 @@ end
 
 Functionality similar to the above is provided by the [`line_views`](@ref) iterator.
 
+### Wrapping a `Base.IO`
+[`BufReader`](@ref) gives any `Base.IO` the `AbstractBufReader` interface.
+The wrapped io must implement `eof`, and — unless it is one of the
+internally-buffered IO types like `IOBuffer` or `IOStream` — a method of
+`Base.readbytes!` for `MutableMemoryView{UInt8}` destinations that performs a
+single, short read.
+See the extended help of [`BufReader`](@ref) for the precise contract.
+
 ```@docs; canonical=false
 get_buffer
 fill_buffer
