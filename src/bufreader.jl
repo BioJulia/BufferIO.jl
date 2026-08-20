@@ -29,36 +29,14 @@ julia> String(readavailable(rdr))
 ```
 
 # Extended help
-Filling the buffer calls two functions on the wrapped `io`, which together make
-up the contract `io` must implement to be usable with `BufReader`:
-
-* `eof(io)::Bool` is called first. Per its `Base` contract, it may block until
-  at least one byte is available or EOF is known.
-* If `io` is not EOF, `readbytes!(io, v::MutableMemoryView{UInt8})::Integer` is
-  called to read bytes into the start of `v` (the free part of the buffer),
-  returning the number of bytes read. Since `eof` returned `false`, it should
-  read at least one byte, but should *not* block waiting to fill all of `v`:
-  A short read of whatever a single read of the underlying resource produces is
-  expected, and gives the best latency.
-
-There is no efficient generic fallback for this `readbytes!` method.
-Base's fallback for `AbstractArray{UInt8}` destinations reads one byte at a
-time, and the fallback defined in MemoryViews.jl relies on `bytesavailable(io)`,
-which is only meaningful for IO types with an internal buffer, such as
-`IOBuffer`, `IOStream`, and the libuv-based streams in Base.
-IO types without internal buffering — raw sockets, file descriptors, and
-similar — should therefore define their own method:
-
-```julia
-function Base.readbytes!(
-        io::MyRawIO,
-        v::MemoryViews.MutableMemoryView{UInt8},
-        nb::Integer = length(v),
-    )
-    # Block until at least one byte is available, or return 0 at EOF.
-    # Then do a single read into the start of `v`, and return the byte count.
-end
-```
+For an `io::Base.IO` type to function correctly when wrapped in a `BufReader`,
+it must implement:
+* `eof(io)::Bool`, which may block until at least one byte is available or EOF is known.
+  If this returns `false`, at least one byte must be available to read.
+* Either `readbytes!(io, v::MutableMemoryView{UInt8})::Integer`, or else
+  `unsafe_read(io, ::Ptr{UInt8}, ::UInt)` and `bytesavailable(io)::Integer`.
+  If `readbytes!` are implemented, it should read at least one byte when
+  `eof(io) === false`.
 """
 mutable struct BufReader{T <: IO} <: AbstractBufReader
     const io::T

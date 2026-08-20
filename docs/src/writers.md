@@ -50,6 +50,10 @@ function my_write(io::AbstractBufWriter, mem::ImmutableMemoryView{UInt8})::Int
 end
 ```
 
+### Wrapping a `Base.IO`
+[`BufWriter`](@ref) gives any `Base.IO` the `AbstractBufWriter` interface.
+See the extended help of [`BufWriter`](@ref) for the precise contract.
+
 ```@docs; canonical=false
 get_buffer
 grow_buffer

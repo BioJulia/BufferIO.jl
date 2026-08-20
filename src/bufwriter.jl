@@ -26,6 +26,15 @@ julia> flush(wtr); seekstart(io); String(read(io))
 julia> isempty(get_unflushed(wtr))
 true
 ```
+
+# Extended help
+For an `io::Base.IO` type to function correctly when wrapped in a `BufWriter`,
+it must implement:
+* `close(io)`
+* `flush(io)`
+* `unsafe_write(io, ::Ptr{UInt8}, ::UInt)`
+Optional functionaly such as seeking may require additional methods, including,
+but not limited to `seek`, `filesize` and `position`.
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
     io::T
@@ -208,7 +217,7 @@ function shallow_flush(x::BufWriter)::Int
     to_flush = x.consumed
     if !iszero(to_flush)
         used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
-        write(x.io, used)
+        GC.@preserve used unsafe_write(x.io, pointer(used), length(used) % UInt)
         x.consumed = 0
     end
     return to_flush
