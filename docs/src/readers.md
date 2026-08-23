@@ -92,6 +92,10 @@ end
 
 Functionality similar to the above is provided by the [`line_views`](@ref) iterator.
 
+### Wrapping a `Base.IO`
+[`BufReader`](@ref) gives any `Base.IO` the `AbstractBufReader` interface.
+See the extended help of [`BufReader`](@ref) for the precise contract.
+
 ```@docs; canonical=false
 get_buffer
 fill_buffer

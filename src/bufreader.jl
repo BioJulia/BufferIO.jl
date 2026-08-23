@@ -27,6 +27,16 @@ julia> readline(rdr)
 julia> String(readavailable(rdr))
 "abc\\r\\ndef"
 ```
+
+# Extended help
+For an `io::Base.IO` type to function correctly when wrapped in a `BufReader`,
+it must implement:
+* `eof(io)::Bool`, which may block until at least one byte is available or EOF is known.
+  If this returns `false`, at least one byte must be available to read.
+* Either `readbytes!(io, v::MutableMemoryView{UInt8})::Integer`, or else
+  `unsafe_read(io, ::Ptr{UInt8}, ::UInt)` and `bytesavailable(io)::Integer`.
+  If `readbytes!` are implemented, it should read at least one byte when
+  `eof(io) === false`.
 """
 mutable struct BufReader{T <: IO} <: AbstractBufReader
     const io::T
