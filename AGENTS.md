@@ -44,9 +44,8 @@ However, the semantics of the `Base.IO` functions may be slightly different when
 | `BufReader{T<:IO}` | Buffers reads from a `Base.IO` |
 | `BufWriter{T<:IO}` | Buffers writes to a `Base.IO` |
 | `CursorReader` | Stateful reader over in-memory data (no IO) |
-| `VecWriter` | Builds bytes in memory; uses `ByteVector` internally |
+| `VecWriter` | Builds bytes in memory; uses `Vector{UInt8}` internally |
 | `IOReader` / `IOWriter` | Thin wrappers making `AbstractBufReader`/`AbstractBufWriter` usable as `Base.IO` |
-| `ByteVector` | Custom `DenseVector{UInt8}` supporting `takestring!` for zero-copy string creation. , This is a re-implementation of `Vector{UInt8}`, since it uses what would otherwise be implementation details of `Vector` |
 
 ### Source file layout
 
@@ -54,7 +53,7 @@ However, the semantics of the `Base.IO` functions may be slightly different when
 - `base.jl` — generic reader/writer methods (the bulk of the shared implementation)
 - `bufreader.jl`, `bufwriter.jl` — `BufReader`/`BufWriter` implementations
 - `cursor.jl` — `CursorReader`
-- `vecwriter.jl` — `VecWriter` and `ByteVector`
+- `vecwriter.jl` — `VecWriter`
 - `ioreader.jl`, `iowriter.jl` — IO wrapper types
 - `lineiterator.jl` — `LineViewIterator` (created via `line_views()`)
 

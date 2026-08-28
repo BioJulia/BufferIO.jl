@@ -236,20 +236,6 @@ end
     end
 end
 
-@testset "Write numbers" begin
-    io = IOBuffer()
-    writer = BufWriter(io, 3)
-    write(writer, 0x01)
-    write(writer, htol(0x0302))
-    write(writer, 0x07060504)
-    write(writer, 0x0f0e0d0c0b0a0908)
-    write(writer, 1.2443)
-    shallow_flush(writer)
-    data = take!(io)
-    @test data[1:15] == 1:15
-    @test reinterpret(Float64, data[16:23]) == [1.2443]
-end
-
 @testset "resize_buffer" begin
     io = IOBuffer()
     writer = BufWriter(io, 10)

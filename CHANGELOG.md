@@ -1,5 +1,14 @@
 # Unreleased
 
+# 0.3.0
+## Breaking changes
+* This release has removed reading and writing of any other primitive type than UInt8,
+  such that e.g. Int32 and Char no longer can be written to, or read from, BufferIO types.
+  Such more complex serialization will be moved to a different serialization package.
+* Vararg `write(::AbstractBufWriter, x, ::Vararg)` has been removed. Instead, call write
+  multiple times.
+* When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line, an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError` was thrown.
+
 # 0.2.4
 * Bugfix: Remove erroneous print method
 * Various optimisations

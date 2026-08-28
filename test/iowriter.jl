@@ -78,17 +78,6 @@ end
     @test write(io_writer, arr) == 5
     @test vec_writer.vec[(end - 4):end] == arr
 
-    # Test writing integers
-    @test write(io_writer, htol(UInt16(0x1234))) == 2
-    @test vec_writer.vec[(end - 1):end] == [0x34, 0x12]
-
-    @test write(io_writer, htol(UInt32(0xABCDEF12))) == 4
-    @test vec_writer.vec[(end - 3):end] == [0x12, 0xEF, 0xCD, 0xAB]
-
-    # Test writing float
-    @test write(io_writer, Float64(3.14)) == 8
-    @test reinterpret(Float64, vec_writer.vec[(end - 7):end])[1] == 3.14
-
     # Test writing MemoryView
     vec_writer = VecWriter()
     io_writer = IOWriter(vec_writer)
@@ -130,14 +119,6 @@ end
     n = write(io_writer3, unicode_str)
     @test n == sizeof(unicode_str)
     @test String(vec_writer3.vec) == unicode_str
-end
-
-@testset "IOWriter write Char" begin
-    io_writer = IOWriter(VecWriter())
-    @test write(io_writer, 'a', 'æ') == 3
-    @test write(io_writer, '\0') == 1
-    @test write(io_writer, '北') == 3
-    @test String(io_writer.x.vec) == "aæ\0北"
 end
 
 @testset "IOWriter write CodeUnits" begin

@@ -18,7 +18,6 @@
     @test BufferIO.get_memory(v) !== vmem
 
     @test_throws ArgumentError resize!(v, -1)
-    @test_throws ArgumentError resize!(v, 2^50)
 end
 
 @testset "Construction" begin
@@ -38,7 +37,8 @@ end
     close(vw)
     flush(vw)
 
-    write(vw, htol(0x0102))
+    write(vw, 0x02)
+    write(vw, 0x01)
     @test get_unflushed(vw) == b"abc\2\1"
 
     # Test overallocation
