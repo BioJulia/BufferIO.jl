@@ -4,9 +4,7 @@ using MemoryViews: MemoryViews,
     ImmutableMemoryView,
     MutableMemoryView,
     MemoryView,
-    MemoryKind,
-    IsMemory,
-    NotMemory
+    unsafe_memoryref
 
 export AbstractBufReader,
     AbstractBufWriter,

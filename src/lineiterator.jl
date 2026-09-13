@@ -221,7 +221,8 @@ function Base.iterate(x::MemLineViewIterator, state::Int = 0)
     mem = x.mem
     state >= length(mem) && return nothing
 
-    newref = @inbounds memoryref(mem.ref, state + 1)
+    # This is safe because the resulting reference is never used to write to the memory.
+    newref = @inbounds memoryref(unsafe_memoryref(mem), state + 1)
     mem = ImmutableMemoryView(MemoryViews.unsafe_from_parts(newref, length(mem) - state))
     pos = findfirst(==(0x0a), mem)
     if pos === nothing
