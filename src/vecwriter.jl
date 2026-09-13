@@ -110,11 +110,11 @@ Base.pointer(x::ByteVector) = Ptr{UInt8}(pointer(x.ref))
 
 Base.sizeof(x::ByteVector) = length(x)
 
-MemoryViews.MemoryKind(::Type{ByteVector}) = IsMemory{MutableMemoryView{UInt8}}()
-
 function MemoryViews.MemoryView(v::ByteVector)
     return MemoryViews.unsafe_from_parts(v.ref, v.len)
 end
+
+Base.write(io::AbstractBufWriter, v::ByteVector) = write(io, MemoryView(v))
 
 function Base.Vector(v::ByteVector)
     result = Vector{UInt8}(undef, length(v))

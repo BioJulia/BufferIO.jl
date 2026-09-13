@@ -533,10 +533,6 @@ function Base.write(io::AbstractBufWriter, x1, x2, xs...)
     return n_written
 end
 
-function Base.write(io::AbstractBufWriter, maybe_mem)
-    return _write(MemoryKind(typeof(maybe_mem)), io, maybe_mem)
-end
-
 function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
     # TODO: In the future, we may want to simply forward to write(io, codeunits(s))
     # However, currently this would force the allocation of a new Memory object sharing
@@ -545,8 +541,19 @@ function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
     return unsafe_write(io, s, sizeof(s) % UInt)
 end
 
-function _write(::IsMemory{<:MemoryView{<:PlainTypes}}, io::AbstractBufWriter, mem)
+function Base.write(io::AbstractBufWriter, mem::MemoryView{<:PlainTypes})
     return unsafe_write(io, mem, sizeof(mem) % UInt)
+end
+
+function Base.write(
+        io::AbstractBufWriter,
+        mem::Base.CodeUnits{UInt8, <:Union{String, SubString{String}}},
+    )
+    return unsafe_write(io, mem, sizeof(mem) % UInt)
+end
+
+function Base.write(io::AbstractBufWriter, mem::Base.CodeUnits{T}) where {T <: PlainTypes}
+    return write(io, MemoryView(mem))
 end
 
 function Base.write(io::AbstractBufWriter, x::PlainTypes)
@@ -599,7 +606,23 @@ end
     return sizeof(u)
 end
 
-Base.write(io::AbstractBufWriter, v::Union{Memory, Array}) = write(io, ImmutableMemoryView(v))
+function Base.write(
+        io::AbstractBufWriter, v::Union{Memory{T}, Array{T}}
+    ) where {T <: PlainTypes}
+    return write(io, ImmutableMemoryView(v))
+end
+
+function Base.write(
+        io::AbstractBufWriter,
+        v::SubArray{T, N, P, I, true},
+    ) where {
+        T <: PlainTypes,
+        N,
+        P,
+        I <: Union{Tuple{AbstractUnitRange, Vararg{Any}}, Tuple{Vararg{Integer}}},
+    }
+    return write(io, ImmutableMemoryView(v))
+end
 
 function Base.write(io::AbstractBufWriter, c::Char)
     u = bswap(reinterpret(UInt32, c))

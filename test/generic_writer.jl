@@ -154,6 +154,31 @@ end
     @test io4.x.vec == large_arr
 end
 
+@testset "write(::T, memory-backed inputs)" begin
+    io = GenericBufWriter()
+    string_codeunits = codeunits("abc")
+    @test write(io, string_codeunits) == 3
+
+    string = "_def_"
+    substring_codeunits = codeunits(SubString(string, 2, 4))
+    @test write(io, substring_codeunits) == 3
+
+    data = UInt8[0x00, 0x67, 0x68, 0x69, 0x00]
+    @test write(io, view(data, 2:4)) == 3
+
+    bytes = ByteVector(undef, 3)
+    copyto!(bytes, b"jkl")
+    @test write(io, bytes) == 3
+
+    @test io.x.vec == b"abcdefghijkl"
+
+    allocation_writer = BoundedWriter(32)
+    write(allocation_writer, string_codeunits)
+    write(allocation_writer, substring_codeunits)
+    @test @allocated(write(allocation_writer, string_codeunits)) == 0
+    @test @allocated(write(allocation_writer, substring_codeunits)) == 0
+end
+
 @testset "unsafe_write" begin
     # Test basic unsafe_write with array
     io = GenericBufWriter()
