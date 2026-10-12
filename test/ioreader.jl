@@ -195,6 +195,16 @@ end
     n_read5 = readbytes!(io_reader3, buf5)
     @test n_read5 == 3
     @test buf5 == b"hi!\xaa\xaa"
+
+    # Test MutableMemoryView (previously ambiguous with MemoryViews' method)
+    mem = fill(0xaa, 5)
+    io_reader4 = IOReader(CursorReader("abcdefg"))
+    n_read6 = readbytes!(io_reader4, MemoryView(mem), 3)
+    @test n_read6 == 3
+    @test mem == b"abc\xaa\xaa"
+    n_read7 = readbytes!(io_reader4, MemoryView(mem))
+    @test n_read7 == 4
+    @test mem == b"defg\xaa"
 end
 
 @testset "IOReader readline" begin

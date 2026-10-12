@@ -75,6 +75,11 @@ function Base.readbytes!(x::IOReader, b::AbstractVector{UInt8}, nb::Integer = le
     return readbytes!(x.x, b, nb)
 end
 
+# Prevent ambiguity
+function Base.readbytes!(x::IOReader, b::MemoryViews.MutableMemoryVector{UInt8}, nb::Integer = length(b))
+    return readbytes!(x.x, b, nb)
+end
+
 function Base.copyuntil(out::IO, from::IOReader, delim::UInt8; keep::Bool = false)
     return copyuntil(out, from.x, delim; keep)
 end
