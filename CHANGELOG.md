@@ -1,4 +1,6 @@
 # 0.2.7
+* Add `ExpandReader`, which wraps an `AbstractBufReader` and provides an infinitely
+  expandable buffer, and function `drop_own` to release its internal buffer
 * Add function `take_inner`, which returns the IO wrapped by a `BufReader`, `BufWriter`,
   `IOReader` or `IOWriter`, without closing it
 * `BufReader` now tracks whether it is closed: Reading from or seeking a closed

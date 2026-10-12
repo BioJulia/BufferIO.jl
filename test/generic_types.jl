@@ -49,7 +49,7 @@ function BufferIO.get_buffer(x::BoundedReader)
 end
 
 function BufferIO.consume(x::BoundedReader, n::Int)
-    in(n, 0:x.buffer_size) || throw(IOError(IOErrors.ConsumeBufferError))
+    in(n, 0:x.buffer_size) || throw(IOError(IOErrorKinds.ConsumeBufferError))
     consume(x.x, n)
     x.buffer_size -= n
     return nothing
@@ -79,7 +79,7 @@ end
 
 function BufferIO.consume(x::BoundedWriter, n::Int)
     remaining = length(x.mem) - x.written
-    in(n, 0:remaining) || throw(IOError(IOErrors.ConsumeBufferError))
+    in(n, 0:remaining) || throw(IOError(IOErrorKinds.ConsumeBufferError))
     x.written += n
     return nothing
 end
@@ -92,4 +92,62 @@ end
 function Base.flush(x::BoundedWriter)
     grow_buffer(x)
     return nothing
+end
+
+# Reader which serves data in fixed-size blocks, and can only fill its buffer when it is
+# empty, like e.g. a block decompressor. Its buffer can never be expanded.
+mutable struct BlockReader <: AbstractBufReader
+    data::Vector{UInt8}
+    blocksize::Int
+    pos::Int
+    stop::Int
+    closed::Bool
+end
+
+function BlockReader(data, blocksize::Int)
+    blocksize < 1 && error("Bad parameterization")
+    return BlockReader(Vector{UInt8}(data), blocksize, 0, 0, false)
+end
+
+BufferIO.get_buffer(x::BlockReader) = ImmutableMemoryView(x.data)[(x.pos + 1):x.stop]
+
+function BufferIO.fill_buffer(x::BlockReader)
+    x.pos < x.stop && return nothing
+    old = x.stop
+    x.stop = min(length(x.data), x.stop + x.blocksize)
+    return x.stop - old
+end
+
+function BufferIO.consume(x::BlockReader, n::Int)
+    in(n, 0:(x.stop - x.pos)) || throw(IOError(IOErrorKinds.ConsumeBufferError))
+    x.pos += n
+    return nothing
+end
+
+Base.close(x::BlockReader) = (x.closed = true; nothing)
+Base.position(x::BlockReader) = x.pos
+Base.filesize(x::BlockReader) = length(x.data)
+
+function Base.seek(x::BlockReader, offset::Int)
+    in(offset, 0:length(x.data)) || throw(IOError(IOErrorKinds.BadSeek))
+    x.pos = x.stop = offset
+    return x
+end
+
+BufferIO.relative_seek(x::BlockReader, delta::Int) = seek(x, x.pos + delta)
+
+# Wraps a BlockReader, but `fill_buffer` returns the values in `script` without
+# filling, until the script is exhausted. Used to test handling of invalid readers.
+struct ScriptedReader <: AbstractBufReader
+    x::BlockReader
+    script::Vector{Union{Nothing, Int}}
+end
+
+ScriptedReader(data, blocksize::Int) = ScriptedReader(BlockReader(data, blocksize), [])
+
+BufferIO.get_buffer(x::ScriptedReader) = get_buffer(x.x)
+BufferIO.consume(x::ScriptedReader, n::Int) = consume(x.x, n)
+
+function BufferIO.fill_buffer(x::ScriptedReader)
+    return isempty(x.script) ? fill_buffer(x.x) : popfirst!(x.script)
 end

@@ -36,3 +36,8 @@ CursorReader
 ```@docs; canonical=false
 VecWriter
 ```
+
+## ExpandReader
+```@docs; canonical=false
+ExpandReader
+```

@@ -43,3 +43,7 @@ end
 @testset "IOWriter" begin
     include("iowriter.jl")
 end
+
+@testset "ExpandReader" begin
+    include("expander.jl")
+end

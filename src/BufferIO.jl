@@ -15,6 +15,7 @@ export AbstractBufReader,
     IOReader,
     IOWriter,
     CursorReader,
+    ExpandReader,
     IOError,
     IOErrorKinds,
     get_buffer,
@@ -32,7 +33,8 @@ export AbstractBufReader,
     takestring!,
     write_repeated,
     relative_seek,
-    take_inner
+    take_inner,
+    drop_own
 
 public LineViewIterator
 
@@ -606,5 +608,6 @@ include("cursor.jl")
 include("ioreader.jl")
 include("iowriter.jl")
 include("vecwriter.jl")
+include("expander.jl")
 
 end # module BufferIO
