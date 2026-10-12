@@ -1,4 +1,16 @@
 # Unreleased
+* Bugfix: Fix method ambiguity of `readbytes!` when reading from an `IOReader`
+  into a `MutableMemoryView`
+
+# 0.2.6
+* Require MemoryViews 0.5
+* `BufWriter` now flushes to its wrapped IO using `unsafe_write`.
+* Document the interface required by an `IO` wrapped in `BufReader` and `BufWriter`.
+* Clarify that seeking backwards in an `AbstractBufWriter` should not truncate.
+
+# 0.2.5
+* Allow MemoryViews 0.4
+* Several small bugfixes and documentation fixes.
 
 # 0.2.4
 * Bugfix: Remove erroneous print method
