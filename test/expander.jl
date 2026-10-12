@@ -276,6 +276,65 @@ end
     @test err.kind == IOErrorKinds.ClosedIO
 end
 
+@testset "ExpandReader take_inner" begin
+    # Inner continues right after the buffer of `io`, which is discarded.
+    # When forwarding inner's buffer, the buffer is consumed from inner.
+    inner = BlockReader("abcdefghij", 4)
+    io = ExpandReader(inner)
+    fill_buffer(io)
+    consume(io, 1)
+    @test take_inner(io) === inner
+    @test !isopen(io)
+    @test !inner.closed
+    @test String(read(inner)) == "efghij"
+
+    # When serving own buffer, regardless of how much of the debt is consumed
+    data = "abcdefghijklmnopqrstuvwxyz"
+    for n_fills in 1:5
+        probe = ExpandReader(BlockReader(data, 4))
+        foreach(_ -> fill_buffer(probe), 1:n_fills)
+        n_buffered = length(get_buffer(probe))
+        for n_consumed in 0:n_buffered
+            inner = BlockReader(data, 4)
+            io = ExpandReader(inner)
+            foreach(_ -> fill_buffer(io), 1:n_fills)
+            @test io.serving_own == (n_fills > 1)
+            consume(io, n_consumed)
+            @test take_inner(io) === inner
+            @test String(read(inner)) == data[(n_buffered + 1):end]
+        end
+    end
+
+    # After take_inner, the reader can no longer access inner
+    @test isempty(get_buffer(io))
+    @test isempty(MemoryViews.memory(io.buffer))
+    for f in [
+            fill_buffer,
+            r -> read(r, UInt8),
+            position,
+            filesize,
+            r -> seek(r, 0),
+            r -> relative_seek(r, 0),
+            take_inner,
+        ]
+        err = try
+            f(io)
+            nothing
+        catch e
+            e
+        end
+        @test err isa IOError && err.kind == IOErrorKinds.ClosedIO
+    end
+    @test drop_own(io) === nothing
+    close(io)
+    @test !inner.closed
+
+    # Closed reader cannot be taken from
+    io = ExpandReader(BlockReader("abc", 2))
+    close(io)
+    @test_throws IOError take_inner(io)
+end
+
 @testset "drop_own" begin
     # When own buffer is in use, it can't be dropped
     io = ExpandReader(BlockReader("abcdefghij", 4))

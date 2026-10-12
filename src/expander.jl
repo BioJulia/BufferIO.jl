@@ -202,7 +202,56 @@ end
 
 function Base.close(io::ExpandReader)
     io.closed && return nothing
+    mark_closed!(io)
     close(io.inner)
+    return nothing
+end
+
+"""
+    take_inner(io::ExpandReader{T})::T
+
+Close `io` and return its inner reader, without closing the inner reader.
+
+Any data buffered in `io` and not yet consumed is discarded, and the returned inner
+reader is positioned immediately after the consumed data.
+To keep the discarded data, copy it from `get_buffer(io)` before calling `take_inner`.
+
+After this, all operations on `io` which would access the inner reader throw an `IOError`
+of kind `ClosedIO`, and `close(io)` does nothing.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is already closed.
+
+# Examples
+```jldoctest
+julia> reader = ExpandReader(BufReader(IOBuffer("abcdef"), 4));
+
+julia> String(read(reader, 2))
+"ab"
+
+julia> kept = String(get_buffer(reader))
+"cd"
+
+julia> inner = take_inner(reader); # "cd" is discarded
+
+julia> String(read(inner)) # inner continues right after `kept`
+"ef"
+
+julia> read(reader, UInt8)
+ERROR: Unsupported operation on closed IO
+[...]
+```
+"""
+function take_inner(io::ExpandReader)
+    io.closed && throw_closed()
+    # When serving own buffer, its last `debt` bytes are the first bytes of inner's
+    # buffer. Else, the buffer of `io` is inner's buffer.
+    n = io.serving_own ? io.debt : length(get_buffer(io.inner)::ImmutableMemoryView{UInt8})
+    consume(io.inner, n)
+    mark_closed!(io)
+    return io.inner
+end
+
+function mark_closed!(io::ExpandReader)
     # Release the memory, and serve an empty own buffer. See comment on the `closed` field.
     io.buffer = MemoryView(Memory{UInt8}())
     io.debt = 0
