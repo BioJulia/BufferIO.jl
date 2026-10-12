@@ -371,6 +371,40 @@ end
 
 Base.isopen(x::BufWriter) = !x.is_closed
 
+"""
+    take_inner(io::BufWriter{T})::T
+
+Write the buffered data of `io` to its wrapped IO using [`shallow_flush`](@ref),
+then close `io` and return the wrapped IO. The wrapped IO is neither closed not flushed.
+
+After this, all operations on `io` which would access the wrapped IO throw an `IOError`
+of kind `ClosedIO`, and `close(io)` does nothing.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is already closed.
+
+# Examples
+```jldoctest
+julia> buf = IOBuffer(); writer = BufWriter(buf);
+
+julia> write(writer, "abc");
+
+julia> take_inner(writer) === buf
+true
+
+julia> String(take!(buf)) # buffered data was written
+"abc"
+
+julia> flush(writer)
+ERROR: Unsupported operation on closed IO
+[...]
+```
+"""
+function take_inner(x::BufWriter)
+    shallow_flush(x) # throws if closed
+    x.is_closed = true
+    return x.io
+end
+
 function consume(x::BufWriter, n::Int)
     @boundscheck if (n % UInt) > (x.capacity - x.consumed) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
@@ -457,7 +491,10 @@ julia> seek(io, 1); filesize(io)
 3
 ```
 """
-Base.filesize(io::BufWriter) = filesize(io.io)
+function Base.filesize(io::BufWriter)
+    io.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    return filesize(io.io)
+end
 
 """
     Base.position(io::AbstractBufWriter)::Int
@@ -484,7 +521,10 @@ julia> (filesize(io), position(io))
 (5, 2)
 ```
 """
-Base.position(io::BufWriter) = position(io.io) + io.consumed
+function Base.position(io::BufWriter)
+    io.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    return position(io.io) + io.consumed
+end
 
 # This specialized method is used whenever `n_bytes` is longer than the remaining room in `io`.
 @noinline function _unsafe_write(io::BufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int

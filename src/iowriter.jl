@@ -27,6 +27,8 @@ struct IOWriter{T <: AbstractBufWriter} <: IO
     x::T
 end
 
+take_inner(x::IOWriter) = x.x
+
 # Forward basic I/O methods
 for f in [
         :close,

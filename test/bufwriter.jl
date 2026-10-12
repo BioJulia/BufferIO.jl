@@ -454,3 +454,44 @@ end
     @test !iswritable(io)
     @test_throws Exception read(io)
 end
+
+@testset "take_inner" begin
+    io = IOBuffer()
+    writer = BufWriter(io, 8)
+    write(writer, "abc")
+    @test take_inner(writer) === io
+    @test !isopen(writer)
+    # Buffered data was written to io
+    @test take!(io) == b"abc"
+    @test isopen(io)
+
+    # The writer can no longer access io
+    is_closed_err(e) = e isa IOError && e.kind == IOErrorKinds.ClosedIO
+    for f in [
+            flush,
+            shallow_flush,
+            grow_buffer,
+            w -> write(w, "a long string which does not fit in the buffer"),
+            w -> (write(w, "abcdefgh"); write(w, 0x01)),
+            w -> get_nonempty_buffer(w, 100),
+            w -> seek(w, 0),
+            position,
+            filesize,
+            take_inner,
+        ]
+        @test try
+            f(writer)
+            false
+        catch e
+            is_closed_err(e)
+        end
+    end
+    close(writer)
+    @test isopen(io)
+    @test isempty(take!(io))
+
+    # Closed writer cannot be taken from
+    writer = BufWriter(IOBuffer())
+    close(writer)
+    @test_throws IOError take_inner(writer)
+end

@@ -288,3 +288,8 @@ end
     write(io_writer, "still works")
     @test String(vec_writer.vec) == "still works"
 end
+
+@testset "take_inner" begin
+    writer = VecWriter()
+    @test take_inner(IOWriter(writer)) === writer
+end
