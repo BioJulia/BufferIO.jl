@@ -6,15 +6,35 @@
 
     # Test custom buffer size
     writer2 = BufWriter(io, 1024)
-    @test length(writer2.buffer) == 1024
+    @test length(writer2.ref.mem) == 1024
 
     # Test minimum buffer size
     writer3 = BufWriter(io, 1)
-    @test length(writer3.buffer) == 1
+    @test length(writer3.ref.mem) == 1
 
     # Test invalid buffer size
     @test_throws ArgumentError BufWriter(io, 0)
     @test_throws ArgumentError BufWriter(io, -1)
+end
+
+@testset "get_buffer of full buffer" begin
+    # When the buffer is full, `consumed + 1` is one past the end of the
+    # buffer. This must not create an out-of-bounds MemoryRef.
+    io = IOBuffer()
+    writer = BufWriter(io, 4)
+    @test write(writer, "abcd") == 4
+    @test isempty(get_buffer(writer))
+    @test get_unflushed(writer) == b"abcd"
+    @test grow_buffer(writer) == 4
+    @test length(get_buffer(writer)) == 4
+    @test grow_buffer(writer) > 0
+    @test length(get_buffer(writer)) == length(writer.ref.mem) == writer.capacity
+    resize_buffer(writer, 2)
+    @test write(writer, "ef") == 2
+    @test isempty(get_buffer(writer))
+    @test get_unflushed(writer) == b"ef"
+    flush(writer)
+    @test take!(io) == b"abcdef"
 end
 
 @testset "get_buffer" begin
@@ -94,7 +114,7 @@ end
     # grow_buffer on empty buffer should expand
     n_grown2 = grow_buffer(writer)
     @test n_grown2 > 0  # buffer expanded
-    @test length(writer.buffer) > 5
+    @test length(writer.ref.mem) > 5
 end
 
 @testset "flush and close" begin

@@ -3,6 +3,8 @@
   `IOReader` and `IOWriter`
 * Bugfix: Fix method ambiguity of `readbytes!` when reading from an `IOReader`
   into a `MutableMemoryView`
+* Faster byte-wise operations for `BufReader` and `BufWriter`, such as `peek` and
+  `write(io, ::UInt8)`
 
 # 0.2.6
 * Require MemoryViews 0.5

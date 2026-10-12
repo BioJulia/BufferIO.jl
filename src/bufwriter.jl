@@ -38,7 +38,12 @@ but not limited to `seek`, `filesize` and `position`.
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
     io::T
-    buffer::Memory{UInt8}
+    # Always points to index 1 of the buffer. Storing a `MemoryRef` and the capacity,
+    # instead of the `Memory`, saves a dependent load in `get_buffer`, since the
+    # data pointer is stored inline in the ref.
+    # The capacity must always equal the length of the buffer.
+    ref::MemoryRef{UInt8}
+    capacity::Int
     consumed::Int
     is_closed::Bool
 
@@ -46,8 +51,16 @@ mutable struct BufWriter{T <: IO} <: AbstractBufWriter
         if isempty(mem)
             throw(ArgumentError("BufWriter cannot be created with empty buffer"))
         end
-        return new{T}(io, mem, 0, false)
+        return new{T}(io, memoryref(mem), length(mem), 0, false)
     end
+end
+
+get_memory(x::BufWriter) = x.ref.mem
+
+function set_memory!(x::BufWriter, mem::Memory{UInt8})
+    x.ref = memoryref(mem)
+    x.capacity = length(mem)
+    return x
 end
 
 function BufWriter(io::IO, buffer_size::Int = 4096)
@@ -122,22 +135,28 @@ julia> buffer = get_buffer(writer); length(buffer)
 ```
 """
 function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
-    return @inbounds MemoryView(x.buffer)[(x.consumed + 1):end]
+    len = x.capacity - x.consumed
+    # When the buffer is full, `consumed + 1` is one past the end of the memory,
+    # which is not a valid index for a `MemoryRef`. Since the memory is never empty,
+    # index 1 is always valid.
+    index = ifelse(iszero(len), 1, x.consumed + 1)
+    ref = @inbounds memoryref(x.ref, index)
+    return MemoryViews.unsafe_from_parts(ref, len)
 end
 
 function get_nonempty_buffer(x::BufWriter, min_size::Int)
-    n_avail = length(x.buffer) - x.consumed
+    n_avail = x.capacity - x.consumed
     n_avail ≥ min_size && return get_buffer(x)
     return _get_nonempty_buffer(x, min_size)
 end
 
 @noinline function _get_nonempty_buffer(x::BufWriter, min_size::Int)
     shallow_flush(x)
-    length(x.buffer) ≥ min_size && return get_buffer(x)
+    x.capacity ≥ min_size && return get_buffer(x)
     # Note: If min_size is negative, we would have taken the branch above
     # so this cast is safe
     new_size = overallocation_size(min_size % UInt)
-    x.buffer = Memory{UInt8}(undef, new_size)
+    set_memory!(x, Memory{UInt8}(undef, new_size))
     return get_buffer(x)
 end
 
@@ -181,7 +200,7 @@ true
 ```
 """
 function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
-    return @inbounds MemoryView(x.buffer)[1:(x.consumed)]
+    return MemoryViews.unsafe_from_parts(x.ref, x.consumed)
 end
 
 """
@@ -216,7 +235,7 @@ function shallow_flush(x::BufWriter)::Int
     end
     to_flush = x.consumed
     if !iszero(to_flush)
-        used = @inbounds ImmutableMemoryView(x.buffer)[1:to_flush]
+        used = ImmutableMemoryView(MemoryViews.unsafe_from_parts(x.ref, to_flush))
         GC.@preserve used unsafe_write(x.io, pointer(used), length(used) % UInt)
         x.consumed = 0
     end
@@ -259,10 +278,9 @@ end
 
 @noinline function grow_buffer_slowpath(x::BufWriter)
     # We know we have no data to flush
-    old_size = length(x.buffer)
+    old_size = x.capacity
     new_size = overallocation_size(old_size % UInt)
-    new_memory = Memory{UInt8}(undef, new_size)
-    x.buffer = new_memory
+    set_memory!(x, Memory{UInt8}(undef, new_size))
     return new_size - old_size
 end
 
@@ -296,7 +314,7 @@ true
 ```
 """
 function resize_buffer(x::BufWriter, n::Int)
-    length(x.buffer) == n && return x
+    x.capacity == n && return x
     n < 1 && throw(ArgumentError("Buffer size must be at least 1"))
     n_buffered = x.consumed
     if n < n_buffered
@@ -305,10 +323,10 @@ function resize_buffer(x::BufWriter, n::Int)
     new_buffer = Memory{UInt8}(undef, n)
     if !iszero(n_buffered)
         dst = @inbounds MemoryView(new_buffer)
-        src = @inbounds MemoryView(x.buffer)[1:n_buffered]
+        src = MemoryViews.unsafe_from_parts(x.ref, n_buffered)
         @inbounds copyto!(dst, src)
     end
-    x.buffer = new_buffer
+    set_memory!(x, new_buffer)
     return x
 end
 
@@ -354,7 +372,7 @@ end
 Base.isopen(x::BufWriter) = !x.is_closed
 
 function consume(x::BufWriter, n::Int)
-    @boundscheck if (n % UInt) > (length(x.buffer) - x.consumed) % UInt
+    @boundscheck if (n % UInt) > (x.capacity - x.consumed) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
     x.consumed += n
