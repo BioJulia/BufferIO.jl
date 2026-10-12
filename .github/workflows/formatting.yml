@@ -3,7 +3,8 @@ on:
   push:
     branches:
       - 'master'
-      - 'release-'
+      - 'release-*'
+      - 'main'
     tags:
       - '*'
   pull_request:
@@ -12,7 +13,7 @@ jobs:
     name: Runic
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: fredrikekre/runic-action@v1
         with:
           version: '1'
