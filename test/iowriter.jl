@@ -22,7 +22,9 @@ end
     io_writer = IOWriter(vec_writer)
 
     # Test close (VecWriter's close does nothing)
+    @test isopen(io_writer)
     close(io_writer)
+    @test isopen(io_writer)
     # Should be able to close multiple times
     close(io_writer)
 

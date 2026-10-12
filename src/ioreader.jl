@@ -30,6 +30,7 @@ for f in [
         :read,
         :readavailable,
         :close,
+        :isopen,
         :position,
         :filesize,
     ]

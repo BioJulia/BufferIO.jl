@@ -206,3 +206,12 @@ end
     end
     @test !isreadable(io)
 end
+
+@testset "isopen" begin
+    io = IOBuffer("hello")
+    reader = BufReader(io)
+    @test isopen(reader)
+    close(reader)
+    @test !isopen(reader)
+    @test !isopen(io)
+end

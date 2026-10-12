@@ -35,8 +35,10 @@ end
     @test get_unflushed(vw) == b"abc"
 
     # These do nothing
+    @test isopen(vw)
     close(vw)
     flush(vw)
+    @test isopen(vw)
 
     write(vw, htol(0x0102))
     @test get_unflushed(vw) == b"abc\2\1"

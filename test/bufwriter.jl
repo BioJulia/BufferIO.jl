@@ -116,8 +116,12 @@ end
     @test read(io, String) == "hello"
 
     # Closing twice should be safe
+    @test isopen(writer)
     close(writer)
+    @test !isopen(writer)
+    @test !isopen(io)
     close(writer)
+    @test !isopen(writer)
 end
 
 @testset "write UInt8" begin

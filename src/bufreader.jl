@@ -183,6 +183,7 @@ function resize_buffer(x::BufReader, n::Int)
 end
 
 Base.close(x::BufReader) = close(x.io)
+Base.isopen(x::BufReader) = isopen(x.io)
 
 function Base.position(x::BufReader)
     res = Int(position(x.io))::Int - length(get_buffer(x))

@@ -45,7 +45,9 @@ end
     @test filesize(io_reader) == filesize(cursor)
 
     # Test close
+    @test isopen(io_reader)
     close(io_reader)  # Should forward to cursor's close (which does nothing)
+    @test isopen(io_reader)
 end
 
 @testset "IOReader read methods" begin

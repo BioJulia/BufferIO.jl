@@ -89,6 +89,7 @@ function consume(x::CursorReader, n::Int)
 end
 
 Base.close(::CursorReader) = nothing
+Base.isopen(::CursorReader) = true
 
 function Base.seek(x::CursorReader, offset::Integer)
     offset = Int(offset)::Int

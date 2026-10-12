@@ -351,6 +351,8 @@ function Base.close(x::BufWriter)
     return nothing
 end
 
+Base.isopen(x::BufWriter) = !x.is_closed
+
 function consume(x::BufWriter, n::Int)
     @boundscheck if (n % UInt) > (length(x.buffer) - x.consumed) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))
