@@ -1,4 +1,6 @@
 # Unreleased
+* Implement `Base.isopen` for `BufReader`, `BufWriter`, `CursorReader`, `VecWriter`,
+  `IOReader` and `IOWriter`
 * Bugfix: Fix method ambiguity of `readbytes!` when reading from an `IOReader`
   into a `MutableMemoryView`
 

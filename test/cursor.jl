@@ -129,7 +129,9 @@ end
 @testset "Misc cursor" begin
     io = CursorReader("abcef")
     @test read(io, UInt8) == UInt8('a')
+    @test isopen(io)
     close(io) # do nothing
+    @test isopen(io)
     @test fill_buffer(io) == 0
     @test read(io, UInt8) == UInt8('b')
 

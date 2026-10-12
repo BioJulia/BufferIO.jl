@@ -30,6 +30,7 @@ end
 # Forward basic I/O methods
 for f in [
         :close,
+        :isopen,
         :flush,
         :position,
         :filesize,

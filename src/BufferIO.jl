@@ -201,6 +201,7 @@ Subtypes `T` of this type should implement at least:
 Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
 for details of the implementation:
 
+* `Base.isopen(io::T)`
 * `Base.seek(io::T, ::Int)`
 * `relative_seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
@@ -239,6 +240,7 @@ Subtypes `T` of this type should implement at least:
 * `Base.flush(io::T)`
 
 They may optionally implement
+* `Base.isopen(io::T)`
 * `Base.seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`

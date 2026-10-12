@@ -312,6 +312,7 @@ function grow_buffer(io::VecWriter)
 end
 
 Base.close(::VecWriter) = nothing
+Base.isopen(::VecWriter) = true
 Base.flush(::VecWriter) = nothing
 
 if isdefined(Base, :takestring!)
