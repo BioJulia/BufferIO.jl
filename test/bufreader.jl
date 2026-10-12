@@ -8,7 +8,7 @@
     # Test with custom buffer size
     io2 = IOBuffer("test")
     reader2 = BufReader(io2, 16)
-    @test length(reader2.buffer) == 16
+    @test length(reader2.ref.mem) == 16
 
     # Test invalid buffer sizes
     io3 = IOBuffer("test")
@@ -17,6 +17,21 @@
 
     # Test that buffer starts empty
     @test isempty(get_buffer(reader))
+end
+
+@testset "get_buffer of fully consumed buffer" begin
+    # When the whole buffer is filled and consumed, `start` is one past the
+    # end of the buffer. This must not create an out-of-bounds MemoryRef.
+    reader = BufReader(IOBuffer("abcdefgh"), 4)
+    @test fill_buffer(reader) == 4
+    @test get_buffer(reader) == b"abcd"
+    consume(reader, 4)
+    @test isempty(get_buffer(reader))
+    @test read(reader) == b"efgh"
+    @test isempty(get_buffer(reader))
+    # Relative seeking backwards within the buffer still works when empty
+    BufferIO.relative_seek(reader, -2)
+    @test read(reader) == b"gh"
 end
 
 @testset "get_buffer and fill_buffer" begin

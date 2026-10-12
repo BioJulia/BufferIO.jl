@@ -40,7 +40,10 @@ it must implement:
 """
 mutable struct BufReader{T <: IO} <: AbstractBufReader
     const io::T
-    buffer::Memory{UInt8}
+    # Always points to index 1 of the buffer. Storing a `MemoryRef` instead of the
+    # `Memory` saves a dependent load in `get_buffer`, since the data pointer
+    # is stored inline in the ref.
+    ref::MemoryRef{UInt8}
     start::Int
     stop::Int
 
@@ -48,9 +51,11 @@ mutable struct BufReader{T <: IO} <: AbstractBufReader
         if isempty(mem)
             throw(ArgumentError("BufReader cannot be created with empty buffer"))
         end
-        return new{T}(io, mem, 1, 0)
+        return new{T}(io, memoryref(mem), 1, 0)
     end
 end
+
+get_memory(x::BufReader) = x.ref.mem
 
 function BufReader(io::IO, buffer_size::Int = 8192)
     if buffer_size < 1
@@ -92,7 +97,13 @@ function BufReader(f, io::IO, buffer_size::Int = 8192)
 end
 
 function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}
-    return @inbounds ImmutableMemoryView(x.buffer)[x.start:x.stop]
+    len = x.stop - x.start + 1
+    # When the buffer is fully consumed, `start` may be one past the end of the memory,
+    # which is not a valid index for a `MemoryRef`. Since the memory is never empty,
+    # index 1 is always valid.
+    index = ifelse(iszero(len), 1, x.start)
+    ref = @inbounds memoryref(x.ref, index)
+    return ImmutableMemoryView(MemoryViews.unsafe_from_parts(ref, len))
 end
 
 function fill_buffer(x::BufReader)::Int
@@ -105,14 +116,15 @@ function fill_buffer(x::BufReader)::Int
     end
 
     # Add more bytes at the end, if possible
-    if x.stop < length(x.buffer)
+    mem = get_memory(x)
+    if x.stop < length(mem)
         n_added = 0
         attempts = 0
         while n_added == 0
             # Safety check to prevent a bad IO object from making this loop
             # infinite
             attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
-            n_added = readbytes!(x.io, MemoryView(x.buffer)[(x.stop + 1):length(x.buffer)])
+            n_added = readbytes!(x.io, MemoryView(mem)[(x.stop + 1):length(mem)])
             attempts += 1
         end
         x.stop += n_added
@@ -128,17 +140,19 @@ end
 
     # If we can move bytes and avoid an allocation, do that
     n_filled = x.stop - x.start + 1
+    mem = get_memory(x)
     if x.start > 1
-        copyto!(x.buffer, 1, x.buffer, x.start, n_filled)
+        copyto!(mem, 1, mem, x.start, n_filled)
     else
         # Allocate new buffer.
-        size = overallocation_size(length(x.buffer) % UInt)
-        mem = Memory{UInt8}(undef, size)
-        copyto!(mem, 1, x.buffer, x.start, n_filled)
-        x.buffer = mem
+        size = overallocation_size(length(mem) % UInt)
+        new_mem = Memory{UInt8}(undef, size)
+        copyto!(new_mem, 1, mem, x.start, n_filled)
+        x.ref = memoryref(new_mem)
+        mem = new_mem
     end
     # Now fill in the newly freed bytes
-    view = MemoryView(x.buffer)[(n_filled + 1):length(x.buffer)]
+    view = MemoryView(mem)[(n_filled + 1):length(mem)]
     @assert !isempty(view)
     n_added = 0
     attempts = 0
@@ -164,7 +178,7 @@ function consume(x::BufReader, n::Int)
 end
 
 function resize_buffer(x::BufReader, n::Int)
-    length(x.buffer) == n && return x
+    length(get_memory(x)) == n && return x
     n < 1 && throw(ArgumentError("Buffer size must be at least 1"))
     n_buffered = x.stop - x.start + 1
     if n < n_buffered
@@ -173,10 +187,10 @@ function resize_buffer(x::BufReader, n::Int)
     new_buffer = Memory{UInt8}(undef, n)
     if !iszero(n_buffered)
         dst = @inbounds MemoryView(new_buffer)[1:n_buffered]
-        src = @inbounds MemoryView(x.buffer)[x.start:x.stop]
+        src = @inbounds MemoryView(get_memory(x))[x.start:x.stop]
         @inbounds copyto!(dst, src)
     end
-    x.buffer = new_buffer
+    x.ref = memoryref(new_buffer)
     x.start = 1
     x.stop = n_buffered
     return x
