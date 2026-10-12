@@ -291,3 +291,8 @@ end
     @test result3 == b"delimiter#end"
     @test eof(io_reader)
 end
+
+@testset "take_inner" begin
+    cursor = CursorReader("abc")
+    @test take_inner(IOReader(cursor)) === cursor
+end

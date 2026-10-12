@@ -31,7 +31,8 @@ export AbstractBufReader,
     skip_exact,
     takestring!,
     write_repeated,
-    relative_seek
+    relative_seek,
+    take_inner
 
 public LineViewIterator
 
@@ -343,6 +344,31 @@ ERROR: Called `consume` with a negative amount, or larger than available buffer 
 ```
 """
 function consume end
+
+"""
+    take_inner(io)
+
+Return the inner io wrapped by `io`.
+
+After calling `take_inner`, `io` is considered closed, and should not be used.
+In particular, operations on `io` may mutate the wrapped IO, and so may invalidate it.
+Calling `take_inner` on an `io` which is closed, or whose wrapped IO has already
+been taken, is not allowed.
+
+Implementations may, but are not required to, detect and prevent using `io` after `take_inner`,
+or calling `take_inner` on a closed `io`, by throwing an `IOError` of kind `ClosedIO`.
+
+# Examples
+```jldoctest
+julia> cursor = CursorReader("abc");
+
+julia> reader = IOReader(cursor);
+
+julia> take_inner(reader) === cursor
+true
+```
+"""
+function take_inner end
 
 ######################
 

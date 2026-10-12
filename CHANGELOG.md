@@ -1,4 +1,11 @@
-# Unreleased
+# 0.2.7
+* Add function `take_inner`, which returns the IO wrapped by a `BufReader`, `BufWriter`,
+  `IOReader` or `IOWriter`, without closing it
+* `BufReader` now tracks whether it is closed: Reading from or seeking a closed
+  `BufReader` throws an `IOError` of kind `ClosedIO`, and closing it twice only
+  closes the wrapped IO once
+* `position` and `filesize` of a closed `BufWriter` now throws an `IOError` of
+  kind `ClosedIO`
 * Implement `Base.isopen` for `BufReader`, `BufWriter`, `CursorReader`, `VecWriter`,
   `IOReader` and `IOWriter`
 * Bugfix: Fix method ambiguity of `readbytes!` when reading from an `IOReader`

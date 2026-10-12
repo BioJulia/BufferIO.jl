@@ -24,6 +24,8 @@ struct IOReader{T <: AbstractBufReader} <: IO
     x::T
 end
 
+take_inner(x::IOReader) = x.x
+
 for f in [
         :bytesavailable,
         :eof,

@@ -230,3 +230,50 @@ end
     @test !isopen(reader)
     @test !isopen(io)
 end
+
+@testset "take_inner" begin
+    io = IOBuffer("abcdefghij")
+    reader = BufReader(io, 4)
+    @test read(reader, 2) == b"ab"
+    @test take_inner(reader) === io
+    @test !isopen(reader)
+    # Buffered "cd" is discarded, and the reader is empty
+    @test isempty(get_buffer(reader))
+    @test isopen(io)
+    @test position(io) == 4
+
+    # The reader can no longer access io
+    is_closed_err(e) = e isa IOError && e.kind == IOErrorKinds.ClosedIO
+    for f in [
+            fill_buffer,
+            r -> read(r, UInt8),
+            read,
+            r -> read(r, 3),
+            readline,
+            r -> skip(r, 2),
+            r -> seek(r, 0),
+            r -> seek(r, 6),
+            r -> relative_seek(r, 1),
+            r -> relative_seek(r, -1),
+            position,
+            take_inner,
+        ]
+        @test try
+            f(reader)
+            false
+        catch e
+            is_closed_err(e)
+        end
+    end
+    close(reader)
+    @test isopen(io)
+    @test position(io) == 4
+    @test read(io, String) == "efghij"
+
+    # Closed reader cannot be taken from
+    reader = BufReader(IOBuffer("abc"))
+    close(reader)
+    @test_throws IOError take_inner(reader)
+    @test_throws IOError read(reader, UInt8)
+    close(reader) # closing twice is fine
+end

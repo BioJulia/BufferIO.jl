@@ -46,12 +46,13 @@ mutable struct BufReader{T <: IO} <: AbstractBufReader
     ref::MemoryRef{UInt8}
     start::Int
     stop::Int
+    is_closed::Bool
 
     function BufReader{T}(io::T, mem::Memory{UInt8}) where {T <: IO}
         if isempty(mem)
             throw(ArgumentError("BufReader cannot be created with empty buffer"))
         end
-        return new{T}(io, memoryref(mem), 1, 0)
+        return new{T}(io, memoryref(mem), 1, 0, false)
     end
 end
 
@@ -107,6 +108,7 @@ function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}
 end
 
 function fill_buffer(x::BufReader)::Int
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     eof(x.io) && return 0
 
     # If buffer is exhausted, we reset start and stop
@@ -196,10 +198,61 @@ function resize_buffer(x::BufReader, n::Int)
     return x
 end
 
-Base.close(x::BufReader) = close(x.io)
-Base.isopen(x::BufReader) = isopen(x.io)
+function Base.close(x::BufReader)
+    x.is_closed && return nothing
+    mark_closed!(x)
+    close(x.io)
+    return nothing
+end
+
+"""
+    take_inner(io::BufReader{T})::T
+
+Close `io` and return its wrapped IO, without closing the wrapped IO.
+
+Any data buffered in `io` and not yet consumed is discarded.
+To keep it, copy it from `get_buffer(io)` before calling `take_inner`.
+
+After this, all operations on `io` which would access the wrapped IO throw an `IOError`
+of kind `ClosedIO`, and `close(io)` does nothing.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is already closed.
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abcdef"), 4);
+
+julia> String(read(reader, 2))
+"ab"
+
+julia> io = take_inner(reader); # "cd" was buffered in reader, and is discarded
+
+julia> String(read(io))
+"ef"
+
+julia> read(reader, UInt8)
+ERROR: Unsupported operation on closed IO
+[...]
+```
+"""
+function take_inner(x::BufReader)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    mark_closed!(x)
+    return x.io
+end
+
+function mark_closed!(x::BufReader)
+    x.is_closed = true
+    # Discard buffered data, such that the closed reader is empty
+    x.start = 1
+    x.stop = 0
+    return nothing
+end
+
+Base.isopen(x::BufReader) = !x.is_closed
 
 function Base.position(x::BufReader)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     res = Int(position(x.io))::Int - length(get_buffer(x))
     @assert res >= 0
     return res
@@ -236,6 +289,7 @@ UInt8[]
 ```
 """
 function Base.seek(x::BufReader, position::Int)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     if !in(position, 0:filesize(x.io))
         throw(IOError(IOErrorKinds.BadSeek))
     end
