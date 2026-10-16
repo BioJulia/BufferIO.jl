@@ -315,3 +315,68 @@ end
     close(reader)
     @test_throws IOError read_into!(reader, MemoryView(zeros(UInt8, 8)))
 end
+
+@testset "BufReader of IOStream" begin
+    # Larger than IOStream's internal 32 KiB buffer, so both the buffered path
+    # and the path bypassing IOStream's buffer are exercised
+    data = rand(UInt8, 300_000)
+    path, io = mktemp()
+    write(io, data)
+    close(io)
+    try
+        for bufsize in (1, 7, 4096, 2^15, 2^17, 2^20)
+            # Fill buffer and drain
+            reader = BufReader(open(path), bufsize)
+            @test read(reader) == data
+            @test eof(reader)
+            @test iszero(fill_buffer(reader))
+            close(reader)
+
+            # Read through read_into! with various destination sizes,
+            # both smaller and larger than the buffer
+            for dstsize in (3, 1000, 50_000, 400_000)
+                reader = BufReader(open(path), bufsize)
+                dst = MemoryView(zeros(UInt8, dstsize))
+                result = UInt8[]
+                while true
+                    n = read_into!(reader, dst)
+                    iszero(n) && break
+                    append!(result, dst[1:n])
+                end
+                @test result == data
+                @test iszero(read_into!(reader, dst))
+                close(reader)
+            end
+        end
+
+        # Buffer is full when filled, so it must be compacted or grown
+        reader = BufReader(open(path), 2^15)
+        @test fill_buffer(reader) == 2^15
+        consume(reader, 100)
+        @test fill_buffer(reader) == 100
+        @test get_buffer(reader) == data[101:(2^15 + 100)]
+        @test fill_buffer(reader) > 0
+        @test length(get_buffer(reader)) > 2^15
+        @test read(reader) == data[101:end]
+        close(reader)
+
+        # Full buffer at EOF does not grow the buffer
+        reader = BufReader(open(path), length(data))
+        @test fill_buffer(reader) == length(data)
+        @test iszero(fill_buffer(reader))
+        @test length(reader.ref.mem) == length(data)
+        close(reader)
+
+        # Empty file
+        empty_path, io = mktemp()
+        close(io)
+        reader = BufReader(open(empty_path), 2^17)
+        @test iszero(fill_buffer(reader))
+        @test iszero(read_into!(reader, MemoryView(zeros(UInt8, 2^18))))
+        @test read(reader) == UInt8[]
+        close(reader)
+        rm(empty_path)
+    finally
+        rm(path)
+    end
+end

@@ -221,7 +221,7 @@ abstract type AbstractBufReader end
 An `AbstractBufWriter` is an IO-like type which exposes mutable memory
 to the user, which can be written to directly.
 This can help avoiding intermediate allocations when writing.
-For example, integers can usually be written to buffered writers without allocating. 
+For example, integers can usually be written to buffered writers without allocating.
 
 !!! warning
     By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage

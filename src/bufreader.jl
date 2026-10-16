@@ -109,7 +109,6 @@ end
 
 function fill_buffer(x::BufReader)::Int
     x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
-    eof(x.io) && return 0
 
     # If buffer is exhausted, we reset start and stop
     if x.start > x.stop
@@ -120,7 +119,7 @@ function fill_buffer(x::BufReader)::Int
     # Add more bytes at the end, if possible
     mem = get_memory(x)
     if x.stop < length(mem)
-        n_added = read_nonzero!(x, MemoryView(mem)[(x.stop + 1):length(mem)])
+        n_added = read_some!(x.io, MemoryView(mem)[(x.stop + 1):length(mem)])
         x.stop += n_added
         return n_added
     else
@@ -129,8 +128,10 @@ function fill_buffer(x::BufReader)::Int
 end
 
 @noinline function fill_buffer_slowpath(x::BufReader)::Int
-    # We now know underlying IO is not EOF, and there is no more room at the end,
-    # and the buffer contains at least 1 byte.
+    # We now know there is no more room at the end, and the buffer contains at least 1 byte.
+    # Check EOF before compacting or growing the buffer, so we don't allocate a new
+    # buffer just to discover there is nothing to read.
+    eof(x.io) && return 0
 
     # If we can move bytes and avoid an allocation, do that
     n_filled = x.stop - x.start + 1
@@ -148,7 +149,7 @@ end
     # Now fill in the newly freed bytes
     view = MemoryView(mem)[(n_filled + 1):length(mem)]
     @assert !isempty(view)
-    n_added = read_nonzero!(x, view)
+    n_added = read_nonzero!(x.io, view)
     x.start = 1
     x.stop = n_added + n_filled
     return n_added
@@ -156,17 +157,42 @@ end
 
 # Read at least one byte from the underlying IO into `dst`, which must be nonempty.
 # The underlying IO must be known to not be EOF.
-function read_nonzero!(x::BufReader, dst::MutableMemoryView{UInt8})::Int
+function read_nonzero!(io::IO, dst::MutableMemoryView{UInt8})::Int
     n_read = 0
     attempts = 0
     while n_read == 0
         # Safety check to prevent a bad IO object from making this loop
         # infinite
         attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
-        n_read = readbytes!(x.io, dst)
+        n_read = readbytes!(io, dst)
         attempts += 1
     end
     return n_read
+end
+
+# Read into `dst`, which must be nonempty, returning the number of bytes read,
+# which is zero only at EOF.
+# This function exists for dispatch; most underlying IO's need an `eof(io)` guard
+# to prevent throwing, but we must not call `eof(IOStream)` specifically since that
+# prevents an optimization (see below).
+# If not for this optimization, this function could be inlined and removed.
+function read_some!(io::IO, dst::MutableMemoryView{UInt8})::Int
+    eof(io) && return 0
+    return read_nonzero!(io, dst)
+end
+
+# For `IOStream`, calling `eof` first would fill the stream's internal buffer, so every
+# byte would be copied twice. Instead, we do a single `ios_read`, which returns zero only
+# at EOF, and which reads directly into `dst`, bypassing the stream's buffer, if `dst`
+# is large.
+# Base only has a fast `IOStream` method for views of `Memory` (but not for
+# `MemoryView`) from Julia 1.12, so on earlier versions, we use the generic method.
+@static if VERSION ≥ v"1.12"
+    function read_some!(io::IOStream, dst::MutableMemoryView{UInt8})::Int
+        mem = MemoryViews.memory(dst)
+        # The all=false is specific to IOStream, and is documented.
+        return readbytes!(io, view(mem, only(parentindices(dst))); all = false)
+    end
 end
 
 function read_into!(x::BufReader, dst::MutableMemoryView{UInt8})::Int
@@ -184,8 +210,7 @@ end
     # reads from the underlying IO, so we read directly into `dst`, bypassing the buffer.
     if length(dst) ≥ length(get_memory(x))
         x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
-        eof(x.io) && return 0
-        return read_nonzero!(x, dst)
+        return read_some!(x.io, dst)
     end
     fill_buffer(x)
     n_read = copyto_start!(dst, get_buffer(x))
