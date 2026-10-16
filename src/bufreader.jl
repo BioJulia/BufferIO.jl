@@ -120,15 +120,7 @@ function fill_buffer(x::BufReader)::Int
     # Add more bytes at the end, if possible
     mem = get_memory(x)
     if x.stop < length(mem)
-        n_added = 0
-        attempts = 0
-        while n_added == 0
-            # Safety check to prevent a bad IO object from making this loop
-            # infinite
-            attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
-            n_added = readbytes!(x.io, MemoryView(mem)[(x.stop + 1):length(mem)])
-            attempts += 1
-        end
+        n_added = read_nonzero!(x, MemoryView(mem)[(x.stop + 1):length(mem)])
         x.stop += n_added
         return n_added
     else
@@ -156,18 +148,49 @@ end
     # Now fill in the newly freed bytes
     view = MemoryView(mem)[(n_filled + 1):length(mem)]
     @assert !isempty(view)
-    n_added = 0
-    attempts = 0
-    while n_added == 0
-        # Safety check to prevent a bad IO object from making this loop
-        # infinite
-        attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
-        n_added = readbytes!(x.io, view)
-        attempts += 1
-    end
+    n_added = read_nonzero!(x, view)
     x.start = 1
     x.stop = n_added + n_filled
     return n_added
+end
+
+# Read at least one byte from the underlying IO into `dst`, which must be nonempty.
+# The underlying IO must be known to not be EOF.
+function read_nonzero!(x::BufReader, dst::MutableMemoryView{UInt8})::Int
+    n_read = 0
+    attempts = 0
+    while n_read == 0
+        # Safety check to prevent a bad IO object from making this loop
+        # infinite
+        attempts > 2 && error("BufReader's IO is not eof, but does not yield any bytes")
+        n_read = readbytes!(x.io, dst)
+        attempts += 1
+    end
+    return n_read
+end
+
+function read_into!(x::BufReader, dst::MutableMemoryView{UInt8})::Int
+    isempty(dst) && return 0
+    src = get_buffer(x)
+    isempty(src) && return read_into_slowpath!(x, dst)
+    n_read = copyto_start!(dst, src)
+    @inbounds consume(x, n_read)
+    return n_read
+end
+
+# Called when the buffer is empty and `dst` is nonempty.
+@noinline function read_into_slowpath!(x::BufReader, dst::MutableMemoryView{UInt8})::Int
+    # If `dst` is at least as large as the buffer, filling the buffer can't save any
+    # reads from the underlying IO, so we read directly into `dst`, bypassing the buffer.
+    if length(dst) ≥ length(get_memory(x))
+        x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+        eof(x.io) && return 0
+        return read_nonzero!(x, dst)
+    end
+    fill_buffer(x)
+    n_read = copyto_start!(dst, get_buffer(x))
+    @inbounds consume(x, n_read)
+    return n_read
 end
 
 function consume(x::BufReader, n::Int)
