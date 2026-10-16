@@ -114,3 +114,5 @@ the seeking can occur purely in-memory without interacting with the underlying I
 relative_seek(x::CursorReader, delta::Int) = seek(x, delta + x.offset)
 
 read_all!(io::CursorReader, dst::MutableMemoryView{UInt8}) = read_into!(io, dst)
+
+is_expandable(::Type{CursorReader}) = true

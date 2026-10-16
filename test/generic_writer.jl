@@ -172,7 +172,7 @@ end
 
     @test io.x.vec == b"abcdefghijkl"
 
-    allocation_writer = BoundedWriter(32)
+    allocation_writer = BoundedWriter(sizehint!(UInt8[], 1024), 32)
     write(allocation_writer, string_codeunits)
     write(allocation_writer, substring_codeunits)
     @test @allocated(write(allocation_writer, string_codeunits)) == 0
@@ -253,10 +253,11 @@ end
             (Int128(94837923794837492), 6),
             (Int16(-12324), 1),
         ]
-        w = BoundedWriter(n_bytes)
+        sink = UInt8[]
+        w = BoundedWriter(sink, n_bytes)
         write(w, n)
         flush(w)
-        @test only(reinterpret(typeof(n), w.x.vec)) === n
+        @test only(reinterpret(typeof(n), sink)) === n
     end
 end
 
@@ -271,10 +272,11 @@ end
 end
 
 @testset "write_repeated" begin
-    io = BoundedWriter(10)
+    sink = UInt8[]
+    io = BoundedWriter(sink, 10)
     @test write_repeated(io, UInt8('y'), 33) === 33
     flush(io)
-    @test takestring!(io.x) == 'y'^33
+    @test String(sink) == 'y'^33
 
     io = GenericBufWriter()
     @test write_repeated(io, UInt8(33), 0) === 0

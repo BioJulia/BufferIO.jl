@@ -366,3 +366,5 @@ function relative_seek(io::BufReader, delta::Int)
 end
 
 _relative_seek(io::BufReader, delta::Int) = seek(io, position(io) + delta)
+
+is_expandable(::Type{<:BufReader}) = true
