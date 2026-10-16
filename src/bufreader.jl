@@ -4,8 +4,12 @@
 
 Wrap an `IO` in a struct with a new buffer, giving it the `AbstractBufReader` interface.
 
-The `BufReader` has an infinitely growable buffer, and will only grow the buffer if
-[`fill_buffer`](@ref) is called while its internal buffer is full.
+The `BufReader` has an infinitely growable buffer, which may grow when
+[`fill_buffer`](@ref) is called.
+
+When filling its buffer, the `BufReader` may move the buffered bytes to the beginning of
+its internal memory to make room for new bytes. This compaction is guaranteed to be
+amortized `O(n_bytes_read)`, no matter how calls to `fill_buffer` and `consume` are interleaved.
 
 This wrapper reads from `io` using `readbytes!`. If `io` is not EOF,
 and `readbytes!` reads zero bytes, an exception is thrown when filling the buffer.
@@ -110,14 +114,23 @@ end
 function fill_buffer(x::BufReader)::Int
     x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
 
-    # If buffer is exhausted, we reset start and stop
-    if x.start > x.stop
+    # Move the buffered bytes to the beginning of the memory, if that frees at least as
+    # many bytes as it moves. The freed bytes have been consumed since `start` was last
+    # reset to 1, so the total number of bytes moved is at most the number of bytes
+    # consumed.
+    # This avoids any pathological cases that require either copying most of the buffer
+    # to make room for few bytes, or else calls read on the underlying IO to read only
+    # a few bytes.
+    # In particular, an exhausted buffer is reset here without copying.
+    n_buffered = x.stop - x.start + 1
+    mem = get_memory(x)
+    if x.start - 1 ≥ n_buffered
+        iszero(n_buffered) || copyto!(mem, 1, mem, x.start, n_buffered)
         x.start = 1
-        x.stop = 0
+        x.stop = n_buffered
     end
 
     # Add more bytes at the end, if possible
-    mem = get_memory(x)
     if x.stop < length(mem)
         n_added = read_some!(x.io, MemoryView(mem)[(x.stop + 1):length(mem)])
         x.stop += n_added
@@ -128,24 +141,18 @@ function fill_buffer(x::BufReader)::Int
 end
 
 @noinline function fill_buffer_slowpath(x::BufReader)::Int
-    # We now know there is no more room at the end, and the buffer contains at least 1 byte.
-    # Check EOF before compacting or growing the buffer, so we don't allocate a new
-    # buffer just to discover there is nothing to read.
+    # We now know there is no more room at the end, and the buffer contains more bytes
+    # than there is room for at the beginning, so moving the bytes would be too expensive.
+    # Hence, we grow the buffer. Check EOF first, so we don't allocate a new buffer
+    # just to discover there is nothing to read.
     eof(x.io) && return 0
-
-    # If we can move bytes and avoid an allocation, do that
     n_filled = x.stop - x.start + 1
     mem = get_memory(x)
-    if x.start > 1
-        copyto!(mem, 1, mem, x.start, n_filled)
-    else
-        # Allocate new buffer.
-        size = overallocation_size(length(mem) % UInt)
-        new_mem = Memory{UInt8}(undef, size)
-        copyto!(new_mem, 1, mem, x.start, n_filled)
-        x.ref = memoryref(new_mem)
-        mem = new_mem
-    end
+    size = overallocation_size(length(mem) % UInt)
+    new_mem = Memory{UInt8}(undef, size)
+    copyto!(new_mem, 1, mem, x.start, n_filled)
+    x.ref = memoryref(new_mem)
+    mem = new_mem
     # Now fill in the newly freed bytes
     view = MemoryView(mem)[(n_filled + 1):length(mem)]
     @assert !isempty(view)

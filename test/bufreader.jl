@@ -349,14 +349,13 @@ end
             end
         end
 
-        # Buffer is full when filled, so it must be compacted or grown
+        # Buffer is full when filled, so it must be grown
         reader = BufReader(open(path), 2^15)
         @test fill_buffer(reader) == 2^15
         consume(reader, 100)
-        @test fill_buffer(reader) == 100
-        @test get_buffer(reader) == data[101:(2^15 + 100)]
         @test fill_buffer(reader) > 0
-        @test length(get_buffer(reader)) > 2^15
+        @test length(get_buffer(reader)) > 2^15 - 100
+        @test get_buffer(reader)[1:100] == data[101:200]
         @test read(reader) == data[101:end]
         close(reader)
 
@@ -378,5 +377,67 @@ end
         rm(empty_path)
     finally
         rm(path)
+    end
+end
+
+@testset "BufReader moving buffered bytes" begin
+    data = collect(UInt8, 1:15)
+
+    # Few buffered bytes are moved to the beginning, even if there is room at the end
+    reader = BufReader(IOBuffer(data), 10)
+    @test fill_buffer(reader) == 10
+    consume(reader, 8)
+    mem = reader.ref.mem
+    @test fill_buffer(reader) == 5
+    @test reader.ref.mem === mem
+    @test get_buffer(reader) == data[9:15]
+    consume(reader, 5)
+    @test reader.stop < length(mem)
+    @test iszero(fill_buffer(reader))
+    @test reader.start == 1
+    @test get_buffer(reader) == data[14:15]
+
+    # Many buffered bytes are not moved to make room for few bytes.
+    # Instead, the buffer is grown.
+    reader = BufReader(IOBuffer(data), 10)
+    @test fill_buffer(reader) == 10
+    consume(reader, 1)
+    @test fill_buffer(reader) == 5
+    @test length(reader.ref.mem) > 10
+    @test get_buffer(reader) == data[2:15]
+
+    # Full buffer at EOF is neither moved nor grown
+    reader = BufReader(IOBuffer(data), 15)
+    @test fill_buffer(reader) == 15
+    consume(reader, 3)
+    mem = reader.ref.mem
+    @test iszero(fill_buffer(reader))
+    @test reader.ref.mem === mem
+    @test reader.start == 4
+    @test get_buffer(reader) == data[4:15]
+
+    # The total number of bytes moved is at most the number of bytes consumed,
+    # no matter how filling and consuming is interleaved
+    data = rand(UInt8, 100_000)
+    for bufsize in (1, 2, 16, 1000), max_consume in (1, 4, 100, 2000)
+        reader = BufReader(IOBuffer(data), bufsize)
+        result = UInt8[]
+        n_moved = 0
+        while true
+            mem = reader.ref.mem
+            (start, n_buffered) = (reader.start, length(get_buffer(reader)))
+            n_filled = fill_buffer(reader)
+            # Bytes were moved within the same memory
+            if reader.ref.mem === mem && reader.start != start
+                n_moved += n_buffered
+            end
+            buffer = get_buffer(reader)
+            iszero(n_filled) && isempty(buffer) && break
+            n = min(length(buffer), rand(1:max_consume))
+            append!(result, buffer[1:n])
+            consume(reader, n)
+        end
+        @test result == data
+        @test n_moved ≤ length(data)
     end
 end
