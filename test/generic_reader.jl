@@ -23,8 +23,11 @@
     # With partial buffering
     io = BufReader(IOBuffer("hello world"), 3)
     v = MemoryView(collect(0x01:0x08))
+    # Fill explicitly, since an empty buffer smaller than `v` is bypassed
+    fill_buffer(io)
     @test read_into!(io, v) == 3
     @test v == b"hel\4\5\6\7\x8"
+    fill_buffer(io)
     @test read_into!(io, v) == 3
     @test v == b"lo \4\5\6\7\x8"
     resize_buffer(io, 100)

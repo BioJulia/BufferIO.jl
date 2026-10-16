@@ -277,3 +277,41 @@ end
     @test_throws IOError read(reader, UInt8)
     close(reader) # closing twice is fine
 end
+
+@testset "read_into! bypasses buffer for large reads" begin
+    # Destination at least as large as the buffer: read directly from the IO
+    reader = BufReader(IOBuffer("abcdefghijkl"), 4)
+    v = MemoryView(zeros(UInt8, 8))
+    @test read_into!(reader, v) == 8
+    @test v == b"abcdefgh"
+    @test isempty(get_buffer(reader))
+    @test position(reader) == 8
+
+    # Exactly the buffer size also bypasses
+    v = MemoryView(zeros(UInt8, 4))
+    @test read_into!(reader, v) == 4
+    @test v == b"ijkl"
+    @test isempty(get_buffer(reader))
+    @test iszero(read_into!(reader, v))
+    @test eof(reader)
+
+    # Smaller destination goes through the buffer
+    reader = BufReader(IOBuffer("abcdefghijkl"), 8)
+    v = MemoryView(zeros(UInt8, 3))
+    @test read_into!(reader, v) == 3
+    @test v == b"abc"
+    @test get_buffer(reader) == b"defgh"
+
+    # Nonempty buffer is drained first, without reading from the IO
+    v = MemoryView(zeros(UInt8, 10))
+    @test read_into!(reader, v) == 5
+    @test v[1:5] == b"defgh"
+    @test read_into!(reader, v) == 4
+    @test v[1:4] == b"ijkl"
+    @test iszero(read_into!(reader, v))
+
+    # Closed reader throws on the bypass path too
+    reader = BufReader(IOBuffer("abcdefghijkl"), 4)
+    close(reader)
+    @test_throws IOError read_into!(reader, MemoryView(zeros(UInt8, 8)))
+end
