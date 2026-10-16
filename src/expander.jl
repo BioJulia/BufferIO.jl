@@ -5,15 +5,40 @@ Reader which wraps another reader and provides an infinitely expandable buffer.
 `ExpandReader` forwards its inner reader's buffer where possible, but if `fill_buffer`
 is called and the inner reader can't expand its buffer, `ExpandReader` will serve the data
 from its own growable buffer.
-
 This implies that `fill_buffer(::ExpandReader)` always returns an `Int`, never `nothing`.
 
-This is useful when users need to buffer a minimum amount (e.g. an entire line, or N bytes),
+`ExpandReader` is useful when users need to buffer a minimum amount (e.g. an entire line, or N bytes),
 but want to read from a generic `AbstractBufReader`.
+Generic code may use the [`expandable`](@ref) function to opt-into `ExpandReader` only
+when necessary.
 
 `ExpandReader` takes control of the inner reader, and mutating the inner reader may
 invalidate the `ExpandReader`.
 
+See also: [`expandable`](@ref), [`BufferIO.is_expandable`](@ref)
+
+# Examples
+```jldoctest
+julia> using BufferIO.Testing: BoundedReader
+
+julia> inner = BoundedReader("Hello, world!", 4; max_fill = 4);
+
+julia> fill_buffer(inner); fill_buffer(inner) === nothing # inner can't grow its buffer
+true
+
+julia> reader = ExpandReader(inner); # In generic code, prefer `expandable(inner)`
+
+julia> String(get_buffer(reader)) # inner's buffer is forwarded
+"Hell"
+
+julia> while !iszero(fill_buffer(reader)) end
+
+julia> String(get_buffer(reader)) # served from the own buffer of `reader`
+"Hello, world!"
+
+julia> BufferIO.is_expandable(typeof(reader))
+true
+```
 """
 mutable struct ExpandReader{T <: AbstractBufReader} <: AbstractBufReader
     # In the common case, the inner's buffer is forwarded
@@ -348,3 +373,38 @@ function drop_own(io::ExpandReader)
     io.buffer = MemoryView(Memory{UInt8}())
     return old_buffer
 end
+
+is_expandable(::Type{<:ExpandReader}) = true
+
+"""
+    expandable(io::T)::Union{T, ExpandReader{T}} where {T <: AbstractBufReader}
+
+Return `io` unchanged if `BufferIO.is_expandable(typeof(io))`, else wrap `io` in an
+`ExpandReader` and return it.
+The type of the result is guaranteed to have `is_expandable` return `true`, which
+means its buffer size is able to grow until EOF. Equivalently, calling `fill_buffer`
+on the result will not return `nothing`.
+
+This function is useful when working with non-expandable readers, or generic readers,
+where the maximum buffer size is unknown, and where some minimum buffering is required.
+An example could be a reader that wraps a generic `AbstractBufReader`, and must be
+able to buffer a full line of input.
+
+The concrete return type of `expandable(io)` is resolved at compile time.
+
+See also: [`BufferIO.is_expandable`](@ref)
+
+# Examples
+```jldoctest
+julia> io = BufReader(IOBuffer("abc"));
+
+julia> expandable(io) === io # BufReader is already expandable
+true
+
+julia> io = BufferIO.Testing.BoundedReader("abc", 2);
+
+julia> expandable(io) isa ExpandReader
+true
+```
+"""
+expandable(io::AbstractBufReader) = is_expandable(typeof(io)) ? io : ExpandReader(io)

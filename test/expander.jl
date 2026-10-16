@@ -428,3 +428,40 @@ end
     end
     @test ok
 end
+
+@testset "is_expandable" begin
+    @test BufferIO.is_expandable(BufReader{IOBuffer})
+    @test BufferIO.is_expandable(CursorReader)
+    @test BufferIO.is_expandable(ExpandReader{BlockReader})
+    @test BufferIO.is_expandable(ExpandReader{BoundedReader})
+    # Default is false
+    @test !BufferIO.is_expandable(BlockReader)
+    @test !BufferIO.is_expandable(BoundedReader)
+    @test !BufferIO.is_expandable(GenericBufReader)
+end
+
+@testset "expandable" begin
+    # Expandable readers are returned unchanged
+    for io in Any[BufReader(IOBuffer("abc")), CursorReader("abc"), ExpandReader(BlockReader("abc", 1))]
+        @test expandable(io) === io
+        @test @inferred(expandable(io)) === io
+    end
+
+    # Other readers are wrapped
+    inner = BoundedReader("abc\ndef", 2)
+    io = @inferred expandable(inner)
+    @test io isa ExpandReader{BoundedReader}
+    @test io.inner === inner
+    @test readline(io) == "abc"
+    @test read(io, String) == "def"
+
+    # Idempotent
+    io = expandable(BlockReader("abc", 1))
+    @test expandable(io) === io
+
+    # Result can buffer beyond inner's limit
+    io = expandable(BoundedReader("abcdefghij", 3))
+    while !iszero(fill_buffer(io)::Int)
+    end
+    @test get_buffer(io) == b"abcdefghij"
+end

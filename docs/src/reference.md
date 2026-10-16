@@ -22,3 +22,9 @@ Base.position(::BufWriter)
 Base.position(::CursorReader)
 Base.skip(::AbstractBufReader, ::Int)
 ```
+## Testing utilities
+```@docs
+BufferIO.Testing
+BufferIO.Testing.BoundedReader
+BufferIO.Testing.BoundedWriter
+```

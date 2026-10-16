@@ -34,9 +34,10 @@ export AbstractBufReader,
     write_repeated,
     relative_seek,
     take_inner,
-    drop_own
+    drop_own,
+    expandable
 
-public LineViewIterator
+public LineViewIterator, is_expandable, Testing
 
 """
     module IOErrorKinds
@@ -210,6 +211,7 @@ for details of the implementation:
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`
 * `resize_buffer(io::T, ::Int)`
+* `BufferIO.is_expandable(::Type{T})`
 
 `AbstractBufReader`s have implementations for many Base IO methods, but with more precisely
 specified semantics than for `Base.IO`.
@@ -600,6 +602,49 @@ function overallocation_size(size::UInt)
     return (size + log + eighth) % Int
 end
 
+"""
+    is_expandable(T::Type{<:AbstractBufReader})::Bool
+
+Trait function that signals if `fill_buffer` on instances of type `T` never returns
+`nothing`. That is, a type `T` must only implement `is_expandable(::Type{T}) = true`
+if `fill_buffer(::T)` returns an `Int` for every instance of `T`.
+
+In practice, this means instances of `T` are able to buffer their entire content with
+repeated calls to `fill_buffer`. Types for which this returns `true` either already
+buffer their whole content (such as [`CursorReader`](@ref)), or else have a growable
+buffer large enough to hold all the underlying data (such as [`BufReader`](@ref) or
+[`ExpandReader`](@ref)).
+
+This is a property of the type, not of the instance, and must be constant foldable.
+It is usually implemented as a constant `true`.
+The default is `is_expandable(::Type{<:AbstractBufReader}) = false`.
+
+Readers that wrap another reader and forward its buffer, e.g. a type `Wrapper{T}`,
+can typically only grow their buffer if the inner reader can. Such types should usually
+forward the trait instead of returning `true`:
+
+```julia
+BufferIO.is_expandable(::Type{Wrapper{T}}) where {T} = BufferIO.is_expandable(T)
+```
+
+See also: [`expandable`](@ref)
+
+# Examples
+```jldoctest
+julia> BufferIO.is_expandable(BufReader)
+true
+
+julia> BufferIO.is_expandable(CursorReader)
+true
+
+julia> struct FooReader <: AbstractBufReader end
+
+julia> BufferIO.is_expandable(FooReader) # default is false
+false
+```
+"""
+is_expandable(::Type{<:AbstractBufReader}) = false
+
 include("base.jl")
 include("bufreader.jl")
 include("bufwriter.jl")
@@ -609,5 +654,6 @@ include("ioreader.jl")
 include("iowriter.jl")
 include("vecwriter.jl")
 include("expander.jl")
+include("testing.jl")
 
 end # module BufferIO

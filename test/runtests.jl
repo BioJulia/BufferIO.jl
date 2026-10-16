@@ -1,6 +1,7 @@
 using BufferIO
 using Test
 using MemoryViews
+using BufferIO.Testing: BoundedReader, BoundedWriter
 
 include("generic_types.jl")
 
@@ -46,4 +47,8 @@ end
 
 @testset "ExpandReader" begin
     include("expander.jl")
+end
+
+@testset "Testing" begin
+    include("testing.jl")
 end
