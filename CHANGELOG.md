@@ -1,19 +1,39 @@
 # 0.2.7
+## New features
+* Add public trait function `BufferIO.is_expandable(::Type{<:AbstractBufReader})`,
+  which signals that `fill_buffer` on the type never returns `nothing`.
+  It defaults to `false`, and is `true` for `BufReader`, `CursorReader` and `ExpandReader`.
 * Add `ExpandReader`, which wraps an `AbstractBufReader` and provides an infinitely
-  expandable buffer, and function `drop_own` to release its internal buffer
+  expandable buffer, and `expandable`, which construct an `ExpandReader` only if needed,
+  based on `is_expandable`
 * Add function `take_inner`, which returns the IO wrapped by a `BufReader`, `BufWriter`,
   `IOReader`, `IOWriter` or `ExpandReader`, without closing it
+* Add public module `BufferIO.Testing` with the types `BoundedReader` and `BoundedWriter`:
+  Minimal readers and writers with restricted buffers, useful for testing code that is
+  generic over `AbstractBufReader` and `AbstractBufWriter`
+* Implement `Base.isopen` for `BufReader`, `BufWriter`, `CursorReader`, `VecWriter`,
+  `IOReader`, `IOWriter` and `ExpandReader`, and document it as an optional method
+  of the `AbstractBufReader` and `AbstractBufWriter` interfaces
+
+## Changes
 * `BufReader` now tracks whether it is closed: Reading from or seeking a closed
   `BufReader` throws an `IOError` of kind `ClosedIO`, and closing it twice only
   closes the wrapped IO once
 * `position` and `filesize` of a closed `BufWriter` now throws an `IOError` of
   kind `ClosedIO`
-* Implement `Base.isopen` for `BufReader`, `BufWriter`, `CursorReader`, `VecWriter`,
-  `IOReader` and `IOWriter`
-* Bugfix: Fix method ambiguity of `readbytes!` when reading from an `IOReader`
-  into a `MutableMemoryView`
+* `BufReader` now only moves its buffered bytes to the start of its memory when that
+  frees at least as many bytes as it moves, and otherwise grows its buffer.
+  This makes compaction amortized `O(n_bytes_read)`, but means the buffer may now grow
+  in `fill_buffer` even when it is not full, which was previously documented not to happen
+
+## Performance
 * Faster byte-wise operations for `BufReader` and `BufWriter`, such as `peek` and
   `write(io, ::UInt8)`
+* Faster reads from a `BufReader` into a `MutableMemoryView`. When the buffer is
+  empty, reads at least as large as the buffer's capacity skip the buffer and read
+  directly from the wrapped IO
+* On Julia 1.12 and later, large reads from a `BufReader` wrapping an `IOStream` also
+  bypass the `IOStream`'s internal buffer
 
 # 0.2.6
 * Require MemoryViews 0.5
