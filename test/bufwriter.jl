@@ -142,6 +142,12 @@ end
     @test !isopen(io)
     close(writer)
     @test !isopen(writer)
+
+    # Closed writer can't be written to
+    @test isempty(get_buffer(writer))
+    @test isempty(get_unflushed(writer))
+    @test_throws IOError write(writer, "a")
+    @test_throws IOError write(writer, 0x01)
 end
 
 @testset "write UInt8" begin
@@ -480,12 +486,17 @@ end
     @test take!(io) == b"abc"
     @test isopen(io)
 
-    # The writer can no longer access io
+    # The writer can no longer access io, or be written to
+    @test isempty(get_buffer(writer))
+    @test isempty(get_unflushed(writer))
     is_closed_err(e) = e isa IOError && e.kind == IOErrorKinds.ClosedIO
     for f in [
             flush,
             shallow_flush,
             grow_buffer,
+            w -> write(w, "a"),
+            w -> write(w, 0x01),
+            w -> resize_buffer(w, 100),
             w -> write(w, "a long string which does not fit in the buffer"),
             w -> (write(w, "abcdefgh"); write(w, 0x01)),
             w -> get_nonempty_buffer(w, 100),

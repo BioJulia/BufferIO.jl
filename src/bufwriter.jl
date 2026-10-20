@@ -41,7 +41,8 @@ mutable struct BufWriter{T <: IO} <: AbstractBufWriter
     # Always points to index 1 of the buffer. Storing a `MemoryRef` and the capacity,
     # instead of the `Memory`, saves a dependent load in `get_buffer`, since the
     # data pointer is stored inline in the ref.
-    # The capacity must always equal the length of the buffer.
+    # The capacity must always equal the length of the buffer, except when closed,
+    # where it is zero, such that the closed writer can't be written to.
     ref::MemoryRef{UInt8}
     capacity::Int
     consumed::Int
@@ -314,6 +315,8 @@ true
 ```
 """
 function resize_buffer(x::BufWriter, n::Int)
+    # Else, resizing would make room in the buffer of a closed writer
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     x.capacity == n && return x
     n < 1 && throw(ArgumentError("Buffer size must be at least 1"))
     n_buffered = x.consumed
@@ -365,7 +368,16 @@ function Base.close(x::BufWriter)
     x.is_closed && return nothing
     flush(x)
     close(x.io)
+    mark_closed!(x)
+    return nothing
+end
+
+function mark_closed!(x::BufWriter)
     x.is_closed = true
+    # Make the buffer empty, so writes will try to grow the buffer and throw.
+    # The memory is kept, since `get_buffer` relies on it never being empty.
+    x.capacity = 0
+    x.consumed = 0
     return nothing
 end
 
@@ -401,7 +413,7 @@ ERROR: Unsupported operation on closed IO
 """
 function take_inner(x::BufWriter)
     shallow_flush(x) # throws if closed
-    x.is_closed = true
+    mark_closed!(x)
     return x.io
 end
 
