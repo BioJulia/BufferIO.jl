@@ -404,6 +404,21 @@ end
 
     close(writer2)
 
+    # seekend must account for unflushed data extending the file
+    io2 = IOBuffer()
+    writer2 = BufWriter(io2, 10)
+    write(writer2, "abc")
+    flush(writer2)
+    seekstart(writer2)
+    write(writer2, "ABCDEF")
+    @test seekend(writer2) === writer2
+    @test position(writer2) == 6
+    write(writer2, "gh")
+    flush(writer2)
+    @test String(take!(io2)) == "ABCDEFgh"
+
+    close(writer2)
+
     # Test invalid seeks
     io3 = IOBuffer()
     writer3 = BufWriter(io3)
