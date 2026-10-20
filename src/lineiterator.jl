@@ -52,8 +52,9 @@ A line is defined as all data up to and including `\\n` (0x0a) or `\\r\\n` (0x0d
 or the remainder of the data in `io` if no `\\n` byte was found.
 If the input is empty, this iterator is also empty.
 
-If `x` had a limited buffer size, and cannot grow its buffer,
+If `x` has a limited buffer size, and cannot grow its buffer,
 and an entire line cannot be kept in the buffer, an `ArgumentError` is thrown.
+To iterate lines of any length from such a reader, use `line_views(expandable(x))`.
 
 The resulting iterator will NOT close `x` when exhausted, this must be handled elsewhere.
 
@@ -160,7 +161,10 @@ If `keep` is `false`, trailing `\\r\\n` or `\\n` are removed from each iterated 
 Unlike `eachline(::IO)`, this method does not close `io` when iteration is done, and does not
 yet support `Iterators.reverse` or `last`.
 
-See also: [`line_views`](@ref)
+To iterate lines longer than the maximum buffer size of `io`, use `eachline(expandable(io))`.
+See [`line_views(::AbstractBufReader)`](@ref) for details.
+
+See also: [`line_views`](@ref), [`expandable`](@ref)
 
 # Examples
 ```jldoctest
