@@ -86,7 +86,7 @@ This pattern is useful for automatically cleaning up the resource of
 julia> io = IOBuffer("hello world");
 
 julia> BufReader(io) do reader
-           println(String(read(io, 5)))
+           println(String(read(reader, 5)))
        end
 hello
 
