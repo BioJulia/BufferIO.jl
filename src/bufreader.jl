@@ -220,6 +220,10 @@ end
     # reads from the underlying IO, so we read directly into `dst`, bypassing the buffer.
     if length(dst) ≥ length(get_memory(x))
         x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+        # The consumed bytes before `start` are no longer the bytes preceding the
+        # stream position, so we must prevent `relative_seek` from seeking into them.
+        x.start = 1
+        x.stop = 0
         return read_some!(x.io, dst)
     end
     fill_buffer(x)
