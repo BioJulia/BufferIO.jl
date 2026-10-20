@@ -236,11 +236,17 @@ function shallow_flush(x::BufWriter)::Int
     end
     to_flush = x.consumed
     if !iszero(to_flush)
-        used = ImmutableMemoryView(MemoryViews.unsafe_from_parts(x.ref, to_flush))
-        GC.@preserve used unsafe_write(x.io, pointer(used), length(used) % UInt)
+        write_buffered(x, to_flush)
         x.consumed = 0
     end
     return to_flush
+end
+
+# Write the first `n` bytes of the memory of `x` to the underlying IO
+function write_buffered(x::BufWriter, n::Int)
+    used = ImmutableMemoryView(MemoryViews.unsafe_from_parts(x.ref, n))
+    GC.@preserve used unsafe_write(x.io, pointer(used), length(used) % UInt)
+    return nothing
 end
 
 """
@@ -366,9 +372,13 @@ end
 
 function Base.close(x::BufWriter)
     x.is_closed && return nothing
-    flush(x)
-    close(x.io)
+    # Mark closed first, so `x` is closed even if writing to or closing the underlying
+    # IO throws. This keeps the content of the memory.
+    n_buffered = x.consumed
     mark_closed!(x)
+    iszero(n_buffered) || write_buffered(x, n_buffered)
+    # Per the docstring of `close(::IO)`, this flushes the underlying IO
+    close(x.io)
     return nothing
 end
 

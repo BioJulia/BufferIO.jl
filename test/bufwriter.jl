@@ -150,6 +150,26 @@ end
     @test_throws IOError write(writer, 0x01)
 end
 
+# IO which fails when written to
+mutable struct FailingWriteIO <: IO
+    is_closed::Bool
+end
+
+Base.unsafe_write(::FailingWriteIO, ::Ptr{UInt8}, ::UInt) = error("write failed")
+Base.close(x::FailingWriteIO) = (x.is_closed = true; nothing)
+
+@testset "close when underlying IO throws" begin
+    io = FailingWriteIO(false)
+    writer = BufWriter(io)
+    write(writer, "abc")
+    @test_throws ErrorException close(writer)
+    # The writer is closed, even though the underlying IO is not
+    @test !isopen(writer)
+    @test !io.is_closed
+    @test_throws IOError write(writer, "abc")
+    @test isnothing(close(writer))
+end
+
 @testset "write UInt8" begin
     io = IOBuffer()
     writer = BufWriter(io, 10)
