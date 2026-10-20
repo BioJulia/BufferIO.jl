@@ -37,7 +37,7 @@ end
     @test eof(io_reader)
 
     # Test position
-    seek(io_reader, 5)
+    @test seek(io_reader, 5) === io_reader
     @test position(io_reader) == position(cursor)
     @test position(io_reader) == 5
 

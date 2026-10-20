@@ -357,7 +357,8 @@ function Base.seek(x::BufReader, position::Int)
     end
     x.start = 1
     x.stop = 0
-    return seek(x.io, position)
+    seek(x.io, position)
+    return x
 end
 
 function relative_seek(io::BufReader, delta::Int)

@@ -72,7 +72,7 @@ end
 
 Base.read(x::IOReader, n::Integer) = read(x.x, n)
 Base.readline(x::IOReader; keep::Bool = false) = readline(x.x; keep)
-Base.seek(x::IOReader, n::Integer) = seek(x.x, n)
+Base.seek(x::IOReader, n::Integer) = (seek(x.x, n); x)
 
 function Base.readbytes!(x::IOReader, b::AbstractVector{UInt8}, nb::Integer = length(b))
     return readbytes!(x.x, b, nb)
