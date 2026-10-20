@@ -237,6 +237,13 @@ end
     write(writer, "abc")
     buf = get_nonempty_buffer(writer, 101)
     @test length(get_nonempty_buffer(writer)) ≥ 101
+
+    # Nonpositive min_size still returns a nonempty buffer when full
+    for min_size in (0, -5)
+        writer = BufWriter(IOBuffer(), 3)
+        write(writer, "abc")
+        @test !isempty(get_nonempty_buffer(writer, min_size))
+    end
 end
 
 @testset "edge cases" begin
