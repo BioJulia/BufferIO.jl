@@ -314,6 +314,16 @@ end
     reader = BufReader(IOBuffer("abcdefghijkl"), 4)
     close(reader)
     @test_throws IOError read_into!(reader, MemoryView(zeros(UInt8, 8)))
+
+    # Seeking backwards after bypassing must not expose stale consumed bytes
+    reader = BufReader(IOBuffer("abcdefghijklmnop"), 4)
+    @test read(reader, 4) == b"abcd"
+    v = MemoryView(zeros(UInt8, 8))
+    @test read_into!(reader, v) == 8
+    @test v == b"efghijkl"
+    relative_seek(reader, -1)
+    @test position(reader) == 11
+    @test read(reader, UInt8) == UInt8('l')
 end
 
 @testset "BufReader of IOStream" begin
