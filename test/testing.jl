@@ -46,6 +46,33 @@
     # Line longer than max buffer size
     @test_throws ArgumentError iterate(line_views(BoundedReader("abcdef\n", 4)))
 
+    # Views of the buffer are overwritten when they are invalidated
+    data = collect(b"abcdef")
+    rdr = BoundedReader(data, 3; max_fill = 2)
+    fill_buffer(rdr)
+    buf = get_buffer(rdr)
+    @test fill_buffer(rdr) == 1
+    @test buf == map(~, b"ab")
+    @test get_buffer(rdr) == b"abc"
+    # Also when no bytes are filled
+    buf = get_buffer(rdr)
+    @test fill_buffer(rdr) === nothing
+    @test buf == map(~, b"abc")
+    @test get_buffer(rdr) == b"abc"
+    buf = get_buffer(rdr)
+    consume(rdr, 1)
+    @test buf == map(~, b"abc")
+    @test get_buffer(rdr) == b"bc"
+    buf = get_buffer(rdr)
+    consume(rdr, 0)
+    @test buf == map(~, b"bc")
+    @test get_buffer(rdr) == b"bc"
+    buf = get_buffer(rdr)
+    close(rdr)
+    @test buf == map(~, b"bc")
+    # The data itself is not modified
+    @test data == b"abcdef"
+
     # Close
     rdr = BoundedReader("abc", 2)
     fill_buffer(rdr)

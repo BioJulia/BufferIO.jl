@@ -288,6 +288,17 @@ Fill more bytes into the buffer from `io`'s underlying buffer, returning
 the number of bytes added. After calling `fill_buffer` and getting `n`,
 the buffer obtained by `get_buffer` should have `n` new bytes appended.
 
+This function may move data in the internal buffer, invalidating previous
+buffers obtained by `get_buffer`. However, data present in previous results
+from `get_buffer` must be present in the new buffer at the same indices.
+In other words, the following must always hold:
+
+```julia
+old_buffer = copy(get_buffer(io))
+fill_buffer(io)
+@assert get_buffer(io)[1:length(old_buffer)] == old_buffer
+```
+
 This function must fill at least one byte, except
 * If the underlying io is EOF, or there is no underlying io to fill bytes from, return 0
 * If the buffer is not empty, and cannot be expanded, return `nothing`.

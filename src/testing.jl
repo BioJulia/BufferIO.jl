@@ -9,6 +9,8 @@ The types in this module implement only the required interface methods, and have
 deliberately restricted buffers. This exercises the code paths that `BufReader` or
 `VecWriter` never hit, such as `fill_buffer` returning `nothing`, and fallback
 definitions of optional methods.
+Furthermore, `BoundedReader` overwrites its old buffer whenever views of its buffer may be
+invalidated, which helps to catch code that uses such views after they have been invalidated.
 
 These types are not optimized for performance, and should only be used in tests.
 
@@ -43,6 +45,12 @@ This makes `BoundedReader` useful to test that generic code correctly handles re
 with a limited buffer size, and, with a small `max_fill`, readers which fill their buffer
 in small increments.
 
+Views returned by `get_buffer` are invalidated by `fill_buffer`, `consume` and `close`.
+To catch code which nonetheless uses such views, every call to these functions moves
+the buffer to new memory, and overwrites the old memory by flipping all bits of every byte.
+Hence, invalidated views will appear to contain different data.
+The bytes of `data` itself are never modified.
+
 `BoundedReader` only implements the methods required of an `AbstractBufReader`, so
 optional methods such as `seek` and `position` are unsupported or use the generic
 fallback definitions.
@@ -56,10 +64,13 @@ julia> reader = BoundedReader("abcdefg", 4; max_fill = 3);
 julia> fill_buffer(reader), fill_buffer(reader), fill_buffer(reader)
 (3, 1, nothing)
 
-julia> String(get_buffer(reader))
+julia> buffer = get_buffer(reader); String(buffer)
 "abcd"
 
-julia> consume(reader, 3); String(read(reader))
+julia> consume(reader, 3); buffer == b"abcd" # buffer invalidated by consume
+false
+
+julia> String(read(reader))
 "defg"
 
 julia> BufferIO.is_expandable(BoundedReader)
@@ -67,9 +78,10 @@ false
 ```
 """
 mutable struct BoundedReader <: AbstractBufReader
+    # Bytes are moved from `inner` to `buffer` when filling the buffer
     const inner::CursorReader
-    # The buffer is the first `buffer_size` bytes of the buffer of `inner`
-    buffer_size::Int
+    # Replaced by new memory whenever views of the buffer may be invalidated
+    buffer::Memory{UInt8}
     const max_buffer_size::Int
     const max_fill::Int
     closed::Bool
@@ -77,34 +89,48 @@ mutable struct BoundedReader <: AbstractBufReader
     function BoundedReader(data, max_buffer_size::Int; max_fill::Int = 1)
         max_buffer_size < 1 && throw(ArgumentError("max_buffer_size must be positive"))
         max_fill < 1 && throw(ArgumentError("max_fill must be positive"))
-        return new(CursorReader(data), 0, max_buffer_size, max_fill, false)
+        return new(CursorReader(data), Memory{UInt8}(), max_buffer_size, max_fill, false)
     end
 end
 
 function BufferIO.get_buffer(x::BoundedReader)::ImmutableMemoryView{UInt8}
-    return get_buffer(x.inner)[1:x.buffer_size]
+    return ImmutableMemoryView(x.buffer)
 end
 
 function BufferIO.fill_buffer(x::BoundedReader)::Union{Int, Nothing}
     x.closed && throw(IOError(IOErrorKinds.ClosedIO))
-    x.buffer_size == x.max_buffer_size && return nothing
-    n_available = length(get_buffer(x.inner))
-    old = x.buffer_size
-    x.buffer_size = min(n_available, x.max_buffer_size, old + x.max_fill)
-    return x.buffer_size - old
+    was_full = length(x.buffer) == x.max_buffer_size
+    n_fill = min(length(get_buffer(x.inner)), x.max_buffer_size - length(x.buffer), x.max_fill)
+    # Relocate even if nothing is filled, since views are invalidated regardless
+    relocate!(x, 0, n_fill)
+    return was_full ? nothing : n_fill
 end
 
 # Since this type is for testing, we always check bounds, even in an `@inbounds` context.
 function BufferIO.consume(x::BoundedReader, n::Int)
-    in(n, 0:x.buffer_size) || throw(IOError(IOErrorKinds.ConsumeBufferError))
-    consume(x.inner, n)
-    x.buffer_size -= n
+    in(n, 0:length(x.buffer)) || throw(IOError(IOErrorKinds.ConsumeBufferError))
+    relocate!(x, n, 0)
     return nothing
 end
 
 function Base.close(x::BoundedReader)
     x.closed = true
-    x.buffer_size = 0
+    relocate!(x, length(x.buffer), 0)
+    return nothing
+end
+
+# Move the buffer to new memory, removing its first `n_consume` bytes, and moving
+# `n_fill` bytes from `inner` to its end. Then flip all bits of the old memory, such that
+# any byte seen through an invalidated view differs from the byte that was there.
+function relocate!(x::BoundedReader, n_consume::Int, n_fill::Int)
+    old = x.buffer
+    n_kept = length(old) - n_consume
+    new = Memory{UInt8}(undef, n_kept + n_fill)
+    copyto!(new, 1, old, n_consume + 1, n_kept)
+    copyto!(MemoryView(new)[(n_kept + 1):end], get_buffer(x.inner)[1:n_fill])
+    consume(x.inner, n_fill)
+    map!(~, old, old)
+    x.buffer = new
     return nothing
 end
 

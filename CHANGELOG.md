@@ -1,3 +1,9 @@
+# Unreleased
+## Changes
+* `BufferIO.Testing.BoundedReader` now moves its buffer to new memory on every call to
+  `fill_buffer`, `consume` and `close`, and overwrites the old memory by flipping its bits.
+  This helps catch code that uses views of the buffer after they have been invalidated
+
 # 0.2.7
 ## New features
 * Add public trait function `BufferIO.is_expandable(::Type{<:AbstractBufReader})`,
