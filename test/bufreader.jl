@@ -366,6 +366,14 @@ end
         @test length(reader.ref.mem) == length(data)
         close(reader)
 
+        # Default buffer size is larger for IOStream than for other IOs
+        reader = BufReader(open(path))
+        @test length(reader.ref.mem) == 65536
+        @test read(reader) == data
+        close(reader)
+        @test BufReader(r -> length(r.ref.mem), open(path)) == 65536
+        @test length(BufReader(IOBuffer(data)).ref.mem) == 8192
+
         # Empty file
         empty_path, io = mktemp()
         close(io)

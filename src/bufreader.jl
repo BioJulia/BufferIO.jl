@@ -62,7 +62,10 @@ end
 
 get_memory(x::BufReader) = x.ref.mem
 
-function BufReader(io::IO, buffer_size::Int = 8192)
+default_buffer_size(::IO) = 8192
+default_buffer_size(::IOStream) = 65536
+
+function BufReader(io::IO, buffer_size::Int = default_buffer_size(io))
     if buffer_size < 1
         throw(ArgumentError("BufReader buffer size must be at least 1"))
     end
@@ -92,7 +95,7 @@ ERROR: ArgumentError: read failed, IOBuffer is not readable
 [...]
 ```
 """
-function BufReader(f, io::IO, buffer_size::Int = 8192)
+function BufReader(f, io::IO, buffer_size::Int = default_buffer_size(io))
     reader = BufReader(io, buffer_size)
     return try
         f(reader)
