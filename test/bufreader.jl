@@ -105,7 +105,7 @@ end
     reader = BufReader(io, 4)
 
     # Test seeking to beginning
-    seek(reader, 0)
+    @test seek(reader, 0) === reader
     @test position(reader) == 0
     @test String(read(reader, 3)) == "012"
 
