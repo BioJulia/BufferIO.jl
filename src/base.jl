@@ -643,7 +643,14 @@ as_unsigned(x, ::Val{8}) = reinterpret(UInt64, x)
 as_unsigned(x, ::Val{16}) = reinterpret(UInt128, x)
 
 Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)
-Base.seekend(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, filesize(x))
+Base.seekend(x::AbstractBufReader) = seek(x, filesize(x))
+
+# The filesize of a writer does not include unflushed data, so we must flush before
+# computing the filesize, as `seek` does.
+function Base.seekend(x::AbstractBufWriter)
+    flush(x)
+    return seek(x, filesize(x))
+end
 
 Base.print(io::AbstractBufWriter, x) = show(io, x)
 Base.print(io::AbstractBufWriter, s::Union{String, SubString{String}}) = (write(io, s); nothing)
