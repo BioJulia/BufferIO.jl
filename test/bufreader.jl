@@ -255,6 +255,7 @@ end
             r -> seek(r, 6),
             r -> relative_seek(r, 1),
             r -> relative_seek(r, -1),
+            r -> relative_seek(r, 0),
             position,
             take_inner,
         ]

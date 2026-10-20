@@ -146,6 +146,8 @@ function get_buffer(x::BufWriter)::MutableMemoryView{UInt8}
 end
 
 function get_nonempty_buffer(x::BufWriter, min_size::Int)
+    # The returned buffer must never be empty
+    min_size = max(min_size, 1)
     n_avail = x.capacity - x.consumed
     n_avail ≥ min_size && return get_buffer(x)
     return _get_nonempty_buffer(x, min_size)
@@ -154,8 +156,7 @@ end
 @noinline function _get_nonempty_buffer(x::BufWriter, min_size::Int)
     shallow_flush(x)
     x.capacity ≥ min_size && return get_buffer(x)
-    # Note: If min_size is negative, we would have taken the branch above
-    # so this cast is safe
+    # Note: The caller ensures min_size is positive, so this cast is safe
     new_size = overallocation_size(min_size % UInt)
     set_memory!(x, Memory{UInt8}(undef, new_size))
     return get_buffer(x)

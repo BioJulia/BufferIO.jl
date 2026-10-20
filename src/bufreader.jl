@@ -363,9 +363,9 @@ end
 
 function relative_seek(io::BufReader, delta::Int)
     # Check if we can achieve the seek by moving purely within
-    # the buffer
+    # the buffer. If closed, the slow path throws.
     new_start = io.start + delta
-    return if in(new_start, 1:(io.stop + 1))
+    return if !io.is_closed & in(new_start, 1:(io.stop + 1))
         io.start = new_start
         io
     else
