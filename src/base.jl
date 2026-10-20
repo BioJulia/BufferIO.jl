@@ -224,7 +224,7 @@ end
     readbytes!(io::AbstractBufReader, b::AbstractVector{UInt8}, nb::Integer=length(b))::Int
 
 Read at most `nb` bytes from `io` into `b`, returning the number of bytes read.
-This function will read zero bytes if and only if `io` is EOF.
+If `nb > 0`, this function will read zero bytes if and only if `io` is EOF.
 
 `b` must use one-based indexing. The size of `b` will be increased if needed (i.e. if nb is greater than
 length(b) and enough bytes could be read), but it will never be decreased.

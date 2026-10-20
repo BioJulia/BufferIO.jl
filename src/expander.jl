@@ -347,7 +347,7 @@ change the semantic behaviour of `io`, only its allocation patterns, and never
 puts `io` in an invalid state.
 It is intended to free memory if extra buffering is only transiently needed.
 
-When this function returns `nothing` or the buffer depends on which buffer
+Whether this function returns `nothing` or the buffer depends on which buffer
 is used by `io`, which is an implementation detail.
 
 # Examples
