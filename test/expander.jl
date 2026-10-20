@@ -156,6 +156,11 @@ end
     consume(io, 4)
     @test position(io) == 7
     @test filesize(io) == 10
+
+    # Forwards to an inner BufReader
+    io = ExpandReader(BufReader(IOBuffer("abcdefghij"), 4))
+    @test filesize(io) == 10
+    @test position(seekend(io)) == 10
 end
 
 @testset "ExpandReader seek" begin

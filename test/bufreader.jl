@@ -191,6 +191,15 @@ end
 
     # Seeking beyond bounds should fail
     @test_throws IOError seek(reader, filesize(io) + 1)
+
+    # filesize of the reader itself, which seekend relies on
+    @test filesize(reader) == 9
+    seekstart(reader)
+    @test read(reader, 2) == b"te"
+    @test filesize(reader) == 9
+    @test seekend(reader) === reader
+    @test position(reader) == 9
+    @test eof(reader)
 end
 
 @testset "resize_buffer" begin
@@ -257,6 +266,7 @@ end
             r -> relative_seek(r, -1),
             r -> relative_seek(r, 0),
             position,
+            filesize,
             take_inner,
         ]
         @test try

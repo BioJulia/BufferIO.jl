@@ -320,6 +320,11 @@ function Base.position(x::BufReader)
     return res
 end
 
+function Base.filesize(x::BufReader)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    return Int(filesize(x.io))::Int
+end
+
 """
     seek(io::AbstractBufReader, offset::Int) -> io
 
