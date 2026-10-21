@@ -17,6 +17,10 @@
 * `write_repeated` now throws an `IOError` of kind `WriterFull` if the writer cannot make
   room for all bytes, and always returns the number of bytes requested. Previously, it
   returned the number of bytes written.
+* The `chomp` keyword of `line_views`, and the public `LineViewIterator.chomp` property,
+  have been renamed to `keep`, with the opposite meaning and default (`keep = false`),
+  to match `eachline`, `readline` and `copyline`. Replace `chomp = false` with
+  `keep = true`.
 * `skip_exact` and `write_repeated` now take `n::Int` instead of `n::Integer`. As a rule,
   BufferIO's own functions take concrete types, while overloads of Base functions accept
   any `Integer`.
@@ -30,8 +34,15 @@
   through a generic fallback that converts to `Int`. Implementors still define `seek(::T, ::Int)`.
   Previously, e.g. `seek(::BufReader, ::Int32)` threw a `MethodError`.
 * `unsafe_read` and `unsafe_write` now accept any `Integer` for `nbytes`, not just `UInt`.
+* `readline` on an `AbstractBufReader` is faster: 1.4x to 3x for lines that fit in the
+  buffer, and 3x to 5x for lines longer than the buffer. If the reader can grow its
+  buffer, `readline` now grows it to fit the line, like `line_views` does.
 
 ## Bugfixes
+* `eachline` now works on readers that can't grow their buffer, like `readline` does,
+  and each iteration consumes exactly one line.
+  Previously, it threw an `IOError` of kind `BufferTooShort` on lines longer than the
+  buffer.
 * `print` and `println` on an `AbstractBufWriter` now work for all arguments, by
   printing through an `IOWriter`. Previously, printing anything but a `String` or
   `SubString{String}` threw a `MethodError`, and the varargs forms, e.g.
