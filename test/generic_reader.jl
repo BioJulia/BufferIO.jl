@@ -132,6 +132,13 @@ end
     n_read3 = unsafe_read(empty_io, arr3, UInt(5))
     @test n_read3 == 0
 
+    # `nbytes` can be any non-negative `Integer`
+    io4 = GenericBufReader("abcdef")
+    arr4 = Vector{UInt8}(undef, 4)
+    @test unsafe_read(io4, arr4, Int32(4)) == 4
+    @test arr4 == b"abcd"
+    @test_throws InexactError unsafe_read(io4, arr4, -1)
+
     # Reading into a `Ref` of any type
     data = collect(UInt8, 1:16)
     expected = only(reinterpret(UInt64, data[1:8]))

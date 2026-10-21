@@ -17,12 +17,19 @@
 * `write_repeated` now throws an `IOError` of kind `WriterFull` if the writer cannot make
   room for all bytes, and always returns the number of bytes requested. Previously, it
   returned the number of bytes written.
+* `skip_exact` and `write_repeated` now take `n::Int` instead of `n::Integer`. As a rule,
+  BufferIO's own functions take concrete types, while overloads of Base functions accept
+  any `Integer`.
 
 ## New features
 * `IOErrorKinds.IOErrorKind` is now public.
 * The two-arg `get_nonempty_buffer(io, min_size)` now works for every `AbstractBufWriter`,
   through a generic fallback which returns `nothing` if `io` can't provide a buffer of
   at least `min_size` bytes. Previously, only `VecWriter` and `BufWriter` implemented it.
+* `seek` now accepts any `Integer` for all `AbstractBufReader`s and `AbstractBufWriter`s,
+  through a generic fallback that converts to `Int`. Implementors still define `seek(::T, ::Int)`.
+  Previously, e.g. `seek(::BufReader, ::Int32)` threw a `MethodError`.
+* `unsafe_read` and `unsafe_write` now accept any `Integer` for `nbytes`, not just `UInt`.
 
 ## Bugfixes
 * `print` and `println` on an `AbstractBufWriter` now work for all arguments, by

@@ -448,6 +448,8 @@ end
     write(writer3, "test")
     flush(writer3)
 
+    @test seek(writer3, Int32(1)) === writer3
+    @test_throws IOError seek(writer3, Int8(-1))
     @test_throws IOError seek(writer3, -1)
     @test_throws IOError seek(writer3, filesize(writer3) + 1)
 

@@ -450,7 +450,7 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 end
 
 """
-    skip_exact(io::AbstractBufReader, n::Integer)::Nothing
+    skip_exact(io::AbstractBufReader, n::Int)::Nothing
 
 Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
 not be skipped.
@@ -473,8 +473,8 @@ julia> skip_exact(reader, 6) # 5 bytes remaining
 ERROR: End of file
 ```
 """
-function skip_exact(io::AbstractBufReader, n::Integer)
-    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
+# `skip` throws the `ArgumentError` for negative `n`
+function skip_exact(io::AbstractBufReader, n::Int)
     skipped = skip(io, n)
     skipped == n || throw(IOError(IOErrorKinds.EOF))
     return nothing
@@ -579,9 +579,9 @@ end
 ##########################
 
 """
-	write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)::Int
+	write_repeated(io::AbstractBufWriter, byte::UInt8, n::Int)::Int
 
-Write `byte` to `io` `n` times, and return `n` as an `Int`.
+Write `byte` to `io` `n` times, and return `n`.
 This is equivalent to `write(io, fill(byte, n))`, but more efficient.
 
 Throw an `InexactError` if `n` is negative.
@@ -599,7 +599,7 @@ julia> takestring!(w)
 "abcxxxxxx"
 ```
 """
-function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)
+function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Int)
     remaining = UInt(n)::UInt
     original = remaining
     while !iszero(remaining)

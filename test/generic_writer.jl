@@ -142,6 +142,12 @@ end
     flush(io6)
     @test sink == expected
 
+    # `nbytes` can be any non-negative `Integer`
+    io5 = GenericBufWriter()
+    @test unsafe_write(io5, Ref(x), Int32(8)) == 8
+    @test io5.x.vec == expected
+    @test_throws InexactError unsafe_write(io5, Ref(x), -1)
+
     io7 = GenericBufWriter()
     @test unsafe_write(io7, Ref((0x61, 0x62, 0x63)), UInt(3)) == 3
     @test io7.x.vec == b"abc"

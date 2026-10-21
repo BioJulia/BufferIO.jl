@@ -22,6 +22,11 @@ Matching how a particular `IO` type, such as `IOBuffer` or `IOStream`, happens t
 Base's `IO` API is underspecified, and those implementations often disagree with each other.
 If a method fails either test, give it a BufferIO-owned name instead of overloading the Base function.
 
+Because generic code may pass any `Integer`, overloads of Base functions accept the same abstract types as Base's `IO` methods do (e.g. `n::Integer`), and convert to the concrete type straight away.
+This can be done once, in a generic method on the abstract type that converts and forwards, so that subtypes and the methods doing the work keep concrete types.
+For example, subtypes implement `seek(::T, ::Int)`, and `seek(::AbstractBufReader, ::Integer)` converts and forwards to it.
+BufferIO's own functions, like `consume` or `relative_seek`, take concrete types (e.g. `Int`), following the rule above.
+
 ### When committing
 Do not add yourself (you, the agent) as a co-author.
 
