@@ -237,9 +237,10 @@ end
 
 Close `io` and return its inner reader, without closing the inner reader.
 
-Any data buffered in `io` and not yet consumed is discarded, and the returned inner
-reader is positioned immediately after the consumed data.
-To keep the discarded data, copy it from `get_buffer(io)` before calling `take_inner`.
+Any data buffered in `io` is consumed, and the returned inner reader
+is positioned at the position of `io` after the consumption.
+To keep the data that would be consumed by `take_inner`, copy it from `get_buffer(io)`
+before calling `take_inner`.
 
 After this, all operations on `io` which would access the inner reader throw an `IOError`
 of kind `ClosedIO`, and `close(io)` does nothing.
@@ -256,7 +257,7 @@ julia> String(read(reader, 2))
 julia> kept = String(get_buffer(reader))
 "cd"
 
-julia> inner = take_inner(reader); # "cd" is discarded
+julia> inner = take_inner(reader); # "cd" is consumed
 
 julia> String(read(inner)) # inner continues right after `kept`
 "ef"
