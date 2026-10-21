@@ -225,4 +225,14 @@ end
     end
     @test err isa IOError
     @test err.kind == IOErrorKinds.WriterFull
+
+    io = FixedWriter(3)
+    err = try
+        write_repeated(io, 0x61, 4)
+    catch e
+        e
+    end
+    @test err isa IOError
+    @test err.kind == IOErrorKinds.WriterFull
+    @test write_repeated(FixedWriter(3), 0x61, 3) === 3
 end
