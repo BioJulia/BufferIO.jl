@@ -142,6 +142,38 @@ end
     @test String(copy(io.x.vec)) == "HelloWorld"
 end
 
+@testset "print and println" begin
+    io = GenericBufWriter()
+
+    # Non-string arguments print as they would to an IO, without quotes
+    @test print(io, 1) === nothing
+    @test print(io, 'a') === nothing
+    @test print(io, :sym) === nothing
+    @test print(io, "ab"[1:1]) === nothing
+    @test print(io, SubString("xyz", 2:3)) === nothing
+    @test print(io, lazy"q$(2)") === nothing
+    @test print(io, nothing) === nothing
+    @test print(io, [1, 2]) === nothing
+    @test String(copy(io.x.vec)) == "1asymayzq2nothing[1, 2]"
+
+    # Varargs forms must not fall through to Base's `print(xs...)`,
+    # which would print to stdout
+    io = GenericBufWriter()
+    @test print(io) === nothing
+    @test print(io, "a", 'b', 3) === nothing
+    @test println(io) === nothing
+    @test println(io, "x") === nothing
+    @test println(io, "y", 'z', 1.5) === nothing
+    @test String(copy(io.x.vec)) == "ab3\nx\nyz1.5\n"
+
+    # Printing to a writer that must flush to make room
+    sink = UInt8[]
+    io = BoundedWriter(sink, 2)
+    println(io, "Hello, ", "world", '!', 42)
+    flush(io)
+    @test String(copy(sink)) == "Hello, world!42\n"
+end
+
 @testset "Complex write scenarios" begin
     # Test mixed writes that cause buffer growth
     io = GenericBufWriter(UInt8[1, 2])  # Start small

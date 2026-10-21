@@ -8,6 +8,7 @@ Performance is very important for this codebase.
 * `consume` uses `@boundscheck` so callers can opt into `@inbounds` for performance.
 * Types are explicitly not threadsafe by design.
 * The code base is formatted by Runic. Run `runic -i .` after changes. If formatting fails, alert the user and do not attempt to install Runic.
+* Avoid using leading underscores in names, like `function _foo`. The `export` and `public` keywords, not names, determine public/private distinction.
 
 Unlike most idiomatic Julia code, this code base perfers concrete types, e.g. a function may be `advance_reader(::SomeReader, ::UInt)`, not taking `::Integer` as the second argument.
 
