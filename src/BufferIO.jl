@@ -59,17 +59,11 @@ module IOErrorKinds
     * `BufferTooShort`: Thrown by various functions that require a minimum buffer size, which
       the `io` cannot provide. This should only be thrown if the buffer is unable to grow to
       the required size, and not if e.g. the buffer does not expand because the io is EOF.
+    * `WriterFull`: Occurs when a writer cannot make room for more data, i.e. when
+      `grow_buffer` returns zero, such that a write operation cannot complete.
+      If a writer can make room, but not a contiguous buffer of a required minimum size,
+      `BufferTooShort` is thrown instead.
     * `BadSeek`: An out-of-bounds seek operation was attempted
-    * `PermissionDenied`: Acces was denied to a system (filesystem, network, OS, etc.) resource
-    * `NotFound`: Resource was not found, e.g. no such file or directory
-    * `BrokenPipe`: The operation failed because a pipe was broken. This typically happens when
-       writing to stdout or stderr, which then gets closed.
-    * `AlreadyExists`: Resource (e.g. file) could not be created because it already exists
-    * `NotADirectory`: Resource is unexpectedly not a directory. E.g. a path contained a non-directory
-      file as an intermediate component.
-    * `IsADirectory`: Resource is a directory when a non-directory was expected
-    * `DirectoryNotEmpty`: Operation cannot succeed because it requires an empty directory
-    * `InvalidFileName`: File name was invalid for platform, e.g. too long name, or invalid characters.
     * `ClosedIO`: Indicates an operation was done on a closed IO.
     """
     @enum IOErrorKind::UInt8 begin
@@ -77,36 +71,21 @@ module IOErrorKinds
         BadSeek
         EOF
         BufferTooShort
-        PermissionDenied
-        NotFound
-        BrokenPipe
-        AlreadyExists
-        NotADirectory
-        IsADirectory
-        DirectoryNotEmpty
-        InvalidFileName
+        WriterFull
         ClosedIO
     end
 
-    public ConsumeBufferError,
+    public IOErrorKind,
+        ConsumeBufferError,
         BadSeek,
         EOF,
         BufferTooShort,
-        PermissionDenied,
-        NotFound,
-        BrokenPipe,
-        AlreadyExists,
-        NotADirectory,
-        IsADirectory,
-        DirectoryNotEmpty,
-        InvalidFileName,
+        WriterFull,
         ClosedIO
 end
 
 using .IOErrorKinds: IOErrorKind
 
-# NB: This is mutable because I might want to add more data in the future,
-# but I want to keep this as being only pointer-sized.
 """
     IOError
 
@@ -131,7 +110,7 @@ julia> try
 Seeking operation out of bounds
 ```
 """
-mutable struct IOError <: Exception
+struct IOError <: Exception
     kind::IOErrorKind
 end
 
@@ -145,22 +124,8 @@ function Base.showerror(io::IO, err::IOError)
         "End of file"
     elseif kind === IOErrorKinds.BufferTooShort
         "Buffer of reader or writer is too short for operation"
-    elseif kind === IOErrorKinds.PermissionDenied
-        "Permission denied"
-    elseif kind === IOErrorKinds.NotFound
-        "Resource, perhaps a file, not found"
-    elseif kind === IOErrorKinds.BrokenPipe
-        "Write to broken UNIX pipe, possibly writing to closed stdout"
-    elseif kind === IOErrorKinds.AlreadyExists
-        "Unique resource already exists, possibly a filesystem path"
-    elseif kind === IOErrorKinds.NotADirectory
-        "Not a directory"
-    elseif kind === IOErrorKinds.IsADirectory
-        "File is a directory"
-    elseif kind === IOErrorKinds.DirectoryNotEmpty
-        "Directory not empty"
-    elseif kind === IOErrorKinds.InvalidFileName
-        "Invalid file name"
+    elseif kind === IOErrorKinds.WriterFull
+        "Writer is full and cannot make room for more data"
     elseif kind === IOErrorKinds.ClosedIO
         "Unsupported operation on closed IO"
     end

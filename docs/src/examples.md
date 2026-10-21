@@ -69,7 +69,7 @@ Similar to the above example, where BufferIO's principle of _the buffer is the i
 For example, currently, writing a number to an `IOBuffer` allocates. This is because the number is first heap-allocated, and then data from the heap is copied into the io.
 In contrast, BufferIO provides the the a buffer to write into directly.
 
-The following method is already implemented in BufferIO, but is useful as an example:
+BufferIO does not implement writing integers, but such a method is useful as an example:
 
 ```julia
 using BufferIO, MemoryViews

@@ -476,7 +476,7 @@ end
 
 Write `nbytes` bytes from `ref` (converted to a pointer) to `io`,
 and return `Int(nbytes)`.
-If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.EOF)`.
+If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.WriterFull)`.
 
 !!! warning
     Safety: If `ref` is a pointer, the caller is responsible for ensuring that the
@@ -505,7 +505,7 @@ end
     remaining = n_bytes
     while !iszero(remaining)
         buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
-        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        isnothing(buffer) && throw(IOError(IOErrorKinds.WriterFull))
         isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
         mn = min(remaining, length(buffer) % UInt)
         GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, mn)
@@ -530,7 +530,7 @@ end
 function _write_slowpath(io::AbstractBufWriter, byte::UInt8)
     grow_buffer(io)
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
-    isempty(buffer) && throw(IOError(IOErrorKinds.EOF))
+    isempty(buffer) && throw(IOError(IOErrorKinds.WriterFull))
     @inbounds buffer[1] = byte
     @inbounds consume(io, 1)
     return 1

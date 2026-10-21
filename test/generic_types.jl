@@ -79,3 +79,23 @@ BufferIO.consume(x::ScriptedReader, n::Int) = consume(x.x, n)
 function BufferIO.fill_buffer(x::ScriptedReader)
     return isempty(x.script) ? fill_buffer(x.x) : popfirst!(x.script)
 end
+
+# Writer with a fixed capacity, which can never make room for more data.
+mutable struct FixedWriter <: AbstractBufWriter
+    const mem::Memory{UInt8}
+    n_written::Int
+end
+
+FixedWriter(capacity::Int) = FixedWriter(Memory{UInt8}(undef, capacity), 0)
+
+BufferIO.get_buffer(x::FixedWriter) = MemoryView(x.mem)[(x.n_written + 1):end]
+BufferIO.grow_buffer(::FixedWriter) = 0
+
+function BufferIO.consume(x::FixedWriter, n::Int)
+    in(n, 0:(length(x.mem) - x.n_written)) || throw(IOError(IOErrorKinds.ConsumeBufferError))
+    x.n_written += n
+    return nothing
+end
+
+Base.flush(::FixedWriter) = nothing
+Base.close(::FixedWriter) = nothing

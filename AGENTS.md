@@ -12,6 +12,16 @@ Performance is very important for this codebase.
 
 Unlike most idiomatic Julia code, this code base perfers concrete types, e.g. a function may be `advance_reader(::SomeReader, ::UInt)`, not taking `::Integer` as the second argument.
 
+### Overloading Base functions
+BufferIO types are not subtypes of `IO`, but should be usable from untyped generic code written against `IO`.
+A method may overload a Base function unless it:
+* contradicts the documented behaviour of the function for `IO`, or
+* does something obviously wrong given what the function is for.
+
+Matching how a particular `IO` type, such as `IOBuffer` or `IOStream`, happens to implement the function is not a requirement.
+Base's `IO` API is underspecified, and those implementations often disagree with each other.
+If a method fails either test, give it a BufferIO-owned name instead of overloading the Base function.
+
 ### When committing
 Do not add yourself (you, the agent) as a co-author.
 
