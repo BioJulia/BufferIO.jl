@@ -82,9 +82,9 @@ function Base.read(x::AbstractBufReader, nb::Integer)
 end
 
 """
-    unsafe_read(io::AbstractBufReader, ref, nbytes::UInt)::Int
-    unsafe_read(io::AbstractBufReader, ref::Ref{T}, nbytes::UInt)::Int
-    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)::Int
+    unsafe_read(io::AbstractBufReader, ref, nbytes::Integer)::Int
+    unsafe_read(io::AbstractBufReader, ref::Ref{T}, nbytes::Integer)::Int
+    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Integer)::Int
 
 Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
 If `io` reached end of file, stop at EOF.
@@ -108,6 +108,12 @@ function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
         result = unsafe_read(x, ptr, n)
     end
     return result
+end
+
+# Base's `IO` accepts any `Integer` for `nbytes`. Inlined for the same reason as the
+# `Ref{T}` method below.
+@inline function Base.unsafe_read(x::AbstractBufReader, ref, n::Integer)::Int
+    return unsafe_read(x, ref, UInt(n)::UInt)
 end
 
 # See the comment on `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)`
@@ -489,7 +495,7 @@ function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
 end
 
 """
-    unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
+    unsafe_write(io::AbstractBufWriter, ref, nbytes::Integer)::Int
 
 Write `nbytes` bytes from `ref` (converted to a pointer) to `io`,
 and return `Int(nbytes)`.
@@ -510,6 +516,12 @@ function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
         ptr = Base.unsafe_convert(Ptr{UInt8}, cval)::Ptr{UInt8}
         return unsafe_write(io, ptr, nbytes)
     end
+end
+
+# Base's `IO` accepts any `Integer` for `nbytes`. Inlined for the same reason as the
+# `Ref{T}` method below.
+@inline function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::Integer)::Int
+    return unsafe_write(io, ref, UInt(nbytes)::UInt)
 end
 
 # Base's `unsafe_convert(Ptr{UInt8}, ::Ref{T})` only exists for some `T`, so we convert
@@ -601,6 +613,14 @@ function Base.write(
         I <: Union{Tuple{AbstractUnitRange, Vararg{Any}}, Tuple{Vararg{Integer}}},
     }
     return write(io, ImmutableMemoryView(v))
+end
+
+# Subtypes implement `seek(::T, ::Int)`. Without this method, generic code calling
+# e.g. `seek(io, Int32(1))` would throw a `MethodError`.
+# The `Int` check stops a subtype without a `seek` method from recursing forever.
+function Base.seek(x::Union{AbstractBufReader, AbstractBufWriter}, offset::Integer)
+    offset isa Int && throw(MethodError(seek, (x, offset)))
+    return seek(x, Int(offset)::Int)
 end
 
 Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)

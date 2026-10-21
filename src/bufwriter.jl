@@ -437,7 +437,7 @@ function consume(x::BufWriter, n::Int)
 end
 
 """
-    seek(io::AbstractBufWriter, offset::Int) -> io
+    seek(io::AbstractBufWriter, offset::Integer) -> io
 
 Flush `io`, then seek `io` to the zero-based position `offset`.
 

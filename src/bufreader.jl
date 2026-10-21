@@ -326,7 +326,7 @@ function Base.filesize(x::BufReader)
 end
 
 """
-    seek(io::AbstractBufReader, offset::Int) -> io
+    seek(io::AbstractBufReader, offset::Integer) -> io
 
 Seek `io` to the zero-based position `offset`, if `io` supports seeking,
 and return `io`.
