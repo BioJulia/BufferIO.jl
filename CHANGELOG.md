@@ -20,12 +20,18 @@
 
 ## New features
 * `IOErrorKinds.IOErrorKind` is now public.
+* The two-arg `get_nonempty_buffer(io, min_size)` now works for every `AbstractBufWriter`,
+  through a generic fallback which returns `nothing` if `io` can't provide a buffer of
+  at least `min_size` bytes. Previously, only `VecWriter` and `BufWriter` implemented it.
 
 ## Bugfixes
 * `print` and `println` on an `AbstractBufWriter` now work for all arguments, by
   printing through an `IOWriter`. Previously, printing anything but a `String` or
   `SubString{String}` threw a `MethodError`, and the varargs forms, e.g.
   `println(io, "x")`, silently printed the writer and the arguments to stdout.
+* `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)` and
+  `unsafe_read(::AbstractBufReader, ::Ref, ::UInt)` now work for a `Ref` of any type.
+  Previously, they threw a `MethodError` for e.g. `Ref{Int64}`.
 
 # 0.2.8
 * `BufferIO.Testing.BoundedReader` now moves its buffer to new memory on every call to

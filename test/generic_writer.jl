@@ -127,6 +127,118 @@ end
     n_written4 = unsafe_write(io4, arr4, UInt(4))
     @test n_written4 == 4
     @test String(io4.x.vec) == "abcd"
+
+    # Writing from a `Ref` of any type
+    x = 0x0102030405060708
+    expected = reinterpret(UInt8, [x])
+    io5 = GenericBufWriter()
+    @test unsafe_write(io5, Ref(x), UInt(8)) == 8
+    @test io5.x.vec == expected
+
+    # The writer's buffer is too short to hold the value, so it is written in chunks
+    sink = UInt8[]
+    io6 = BoundedWriter(sink, 3)
+    @test unsafe_write(io6, Ref(x), UInt(8)) == 8
+    flush(io6)
+    @test sink == expected
+
+    io7 = GenericBufWriter()
+    @test unsafe_write(io7, Ref((0x61, 0x62, 0x63)), UInt(3)) == 3
+    @test io7.x.vec == b"abc"
+
+    # Only the first `nbytes` bytes are written
+    io8 = GenericBufWriter()
+    @test unsafe_write(io8, Ref(x), UInt(2)) == 2
+    @test io8.x.vec == expected[1:2]
+
+    # Refs of non-bitstypes would write e.g. a string's length or a vector's pointer
+    @test_throws ArgumentError unsafe_write(GenericBufWriter(), Ref("hello"), UInt(5))
+    @test_throws ArgumentError unsafe_write(GenericBufWriter(), Ref([0x61, 0x62]), UInt(2))
+    @test_throws ArgumentError unsafe_write(GenericBufWriter(), Ref{Any}(x), UInt(8))
+
+    # A `Ptr{T}` is a `Ref{T}`, but may point to more than `sizeof(T)` bytes
+    floats = [1.0, 2.0]
+    io9 = GenericBufWriter()
+    @test GC.@preserve(floats, unsafe_write(io9, pointer(floats), UInt(16))) == 16
+    @test io9.x.vec == reinterpret(UInt8, floats)
+
+    # Writer cannot make room for all bytes
+    err = try
+        unsafe_write(FixedWriter(3), Ref(x), UInt(8))
+    catch e
+        e
+    end
+    @test err isa IOError
+    @test err.kind == IOErrorKinds.WriterFull
+end
+
+write_uint64_from_ref(io::AbstractBufWriter, x::UInt64) = unsafe_write(io, Ref(x), UInt(8))
+
+@testset "unsafe_write from Ref does not allocate" begin
+    # Every write takes the slow path, since the buffer holds at most 3 bytes
+    io = BoundedWriter(sizehint!(UInt8[], 1024), 3)
+    write_uint64_from_ref(io, UInt64(1))
+    @test @allocated(write_uint64_from_ref(io, UInt64(2))) == 0
+end
+
+@testset "get_nonempty_buffer(::T, ::Int)" begin
+    # Buffer already long enough
+    sink = UInt8[]
+    io = BoundedWriter(sink, 4)
+    @test length(get_nonempty_buffer(io, 3)) ≥ 3
+    @test length(get_nonempty_buffer(io, 4)) == 4
+    @test isempty(sink)
+
+    # Buffer can never hold 5 bytes
+    @test get_nonempty_buffer(io, 5) === nothing
+    @test isempty(sink)
+
+    # Buffer must be flushed to hold 3 bytes
+    write(io, "ab")
+    buffer = get_nonempty_buffer(io, 3)
+    @test length(buffer) ≥ 3
+    @test sink == b"ab"
+
+    # Flushes, but then returns nothing
+    write(io, "cd")
+    @test get_nonempty_buffer(io, 5) === nothing
+    @test sink == b"abcd"
+
+    # Nonpositive min_size still returns a nonempty buffer when full
+    for min_size in (0, -5)
+        sink = UInt8[]
+        io = BoundedWriter(sink, 3)
+        write(io, "abc")
+        @test !isempty(get_nonempty_buffer(io, min_size))
+        @test sink == b"abc"
+    end
+
+    # Full writer
+    io = FixedWriter(3)
+    @test length(get_nonempty_buffer(io, 2)) == 3
+    @test get_nonempty_buffer(io, 4) === nothing
+    write(io, "abc")
+    @test get_nonempty_buffer(io, 1) === nothing
+    @test get_nonempty_buffer(io, 0) === nothing
+
+    # Growable writer, which only implements the required methods
+    io = GenericBufWriter(collect(b"abc"))
+    buffer = get_nonempty_buffer(io, 1000)
+    @test length(buffer) ≥ 1000
+    copyto!(buffer, b"def")
+    consume(io, 3)
+    @test io.x.vec == b"abcdef"
+
+    # Closed writer
+    io = BoundedWriter(UInt8[], 3)
+    close(io)
+    err = try
+        get_nonempty_buffer(io, 1)
+    catch e
+        e
+    end
+    @test err isa IOError
+    @test err.kind == IOErrorKinds.ClosedIO
 end
 
 @testset "print(::T, ::SubString)" begin

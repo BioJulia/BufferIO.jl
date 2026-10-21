@@ -57,6 +57,9 @@ end
         @test length(get_nonempty_buffer(vw, min_size)) ≥ max(1, min_size)
     end
 
+    # The two-arg method never returns `nothing`, and the compiler knows it
+    @test (@inferred get_nonempty_buffer(VecWriter(), 100)) isa MutableMemoryView{UInt8}
+
     # Growing with a far offset moves the elements back to the start of the memory
     v = collect(UInt8, 1:100)
     for _ in 1:90

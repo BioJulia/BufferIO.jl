@@ -244,6 +244,10 @@ end
         write(writer, "abc")
         @test !isempty(get_nonempty_buffer(writer, min_size))
     end
+
+    # The two-arg method never returns `nothing`, and the compiler knows it
+    writer = BufWriter(IOBuffer(), 3)
+    @test (@inferred get_nonempty_buffer(writer, 100)) isa MutableMemoryView{UInt8}
 end
 
 @testset "edge cases" begin

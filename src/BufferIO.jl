@@ -514,6 +514,68 @@ function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemory
     return isempty(buffer) ? nothing : buffer
 end
 
+"""
+    get_nonempty_buffer(
+        io::AbstractBufWriter, min_size::Int
+    )::Union{Nothing, MutableMemoryView{UInt8}}
+
+Get a buffer of at least `max(min_size, 1)` bytes, or `nothing` if `io` cannot
+provide a buffer of that size.
+The desired buffer length is obtained by repeatedly calling [`grow_buffer`](@ref).
+
+Writers whose buffer can grow without bound, such as [`VecWriter`](@ref) and
+[`BufWriter`](@ref), never return `nothing`.
+
+!!! warning
+    Use of this method may cause excessive buffering without flushing,
+    which is less memory efficient than calling the one-argument method
+    and flushing in a loop.
+
+# Extended help
+Subtypes of `AbstractBufWriter` may implement this method if they can provide a large
+buffer more efficiently than the generic fallback.
+The returned buffer must contain at least `max(min_size, 1)` bytes.
+
+# Examples
+```jldoctest
+julia> using BufferIO.Testing: BoundedWriter
+
+julia> writer = BoundedWriter(UInt8[], 4);
+
+julia> length(get_nonempty_buffer(writer, 3)) ≥ 3
+true
+
+julia> get_nonempty_buffer(writer, 5) === nothing # buffer can hold at most 4 bytes
+true
+
+julia> length(get_nonempty_buffer(VecWriter(), 100)) ≥ 100 # VecWriter can always grow
+true
+```
+"""
+function get_nonempty_buffer(x::AbstractBufWriter, min_size::Int)::Union{Nothing, MutableMemoryView{UInt8}}
+    buffer = get_buffer(x)::MutableMemoryView{UInt8}
+    length(buffer) ≥ max(min_size, 1) && return buffer
+    return get_nonempty_buffer_slowpath(x, max(min_size, 1), length(buffer))
+end
+
+@noinline function get_nonempty_buffer_slowpath(
+        x::AbstractBufWriter,
+        min_size::Int,
+        current_size::Int,
+    )::Union{Nothing, MutableMemoryView{UInt8}}
+    while true
+        grown = grow_buffer(x)::Int
+        iszero(grown) && return nothing
+        buffer = get_buffer(x)::MutableMemoryView{UInt8}
+        if length(buffer) != current_size + grown
+            error("Invalid implementation of grow_buffer")
+        end
+        length(buffer) ≥ min_size && return buffer
+        current_size = length(buffer)
+    end
+    return
+end
+
 ##########################
 
 """
