@@ -204,3 +204,25 @@ end
     @test write_repeated(io, UInt8(0x03), 8) === 8
     @test takestring!(io.x) == '\3'^8
 end
+
+@testset "Full writer" begin
+    io = FixedWriter(3)
+    @test write(io, "ab") == 2
+    @test write(io, 0x63) == 1
+    err = try
+        write(io, 0x64)
+    catch e
+        e
+    end
+    @test err isa IOError
+    @test err.kind == IOErrorKinds.WriterFull
+
+    io = FixedWriter(3)
+    err = try
+        write(io, "abcd")
+    catch e
+        e
+    end
+    @test err isa IOError
+    @test err.kind == IOErrorKinds.WriterFull
+end

@@ -160,8 +160,7 @@ If the input is empty, this iterator is also empty.
 
 If `keep` is `false`, trailing `\\r\\n` or `\\n` are removed from each iterated line.
 
-Unlike `eachline(::IO)`, this method does not close `io` when iteration is done, and does not
-yet support `Iterators.reverse` or `last`.
+Unlike `eachline(::IO)`, this method does not yet support `Iterators.reverse` or `last`.
 
 To iterate lines longer than the maximum buffer size of `io`, use `eachline(expandable(io))`.
 See [`line_views(::AbstractBufReader)`](@ref) for details.

@@ -9,6 +9,14 @@
 * `ByteVector` is now an alias of `Vector{UInt8}`, and `VecWriter` wraps a `Vector{UInt8}`.
   `VecWriter(v::Vector{UInt8})` now appends to `v`, whereas previously, it took over the
   memory of `v` and emptied `v`.
+* The unused error kinds `PermissionDenied`, `NotFound`, `BrokenPipe`, `AlreadyExists`,
+  `NotADirectory`, `IsADirectory`, `DirectoryNotEmpty` and `InvalidFileName` have been
+  removed from `IOErrorKinds.IOErrorKind`.
+* Writing to an `AbstractBufWriter` which cannot make room for more data now throws an
+  `IOError` of the new kind `WriterFull`, whereas previously, it threw kind `EOF`.
+
+## New features
+* `IOErrorKinds.IOErrorKind` is now public.
 
 ## Bugfixes
 * `print` and `println` on an `AbstractBufWriter` now work for all arguments, by
