@@ -457,14 +457,44 @@ function Base.skip(io::AbstractBufReader, n::Integer)
     return (n - remaining) % Int
 end
 
+function Base.readline(x::AbstractBufReader; keep::Bool = false)
+    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer === nothing && return ""
+    pos = findfirst(==(0x0a), buffer)
+    pos === nothing && return readline_slowpath(x, keep)
+    return take_line!(x, buffer, pos, keep)
+end
+
+# Copy the first `n` bytes of `buffer`, which is the buffer of `x`, into a string,
+# and consume them.
+@inline function take_line!(x::AbstractBufReader, buffer::ImmutableMemoryView{UInt8}, n::Int, keep::Bool)
+    line = @inbounds buffer[1:n]
+    str = String(keep ? line : _chomp(line))
+    @inbounds consume(x, n)
+    return str
+end
+
+# The buffer of `x` is nonempty, and contains no newline.
+# Grow the buffer until it contains the line, so it can be copied into a string once.
+@noinline function readline_slowpath(x::AbstractBufReader, keep::Bool)
+    pos = buffer_until(x, 0x0a)
+    pos isa HitBufferLimit && return readline_accumulate(x, keep)
+    buffer = get_buffer(x)
+    # If no newline was found, the buffer holds the remaining data until EOF.
+    return take_line!(x, buffer, something(pos, length(buffer)), keep)
+end
+
+# The buffer of `x` is nonempty, contains no newline, and can't grow.
 # Different logic than `copyline`, because the destination vector is owned by
 # this function, and therefore we can better handle the case where a 1-byte buffer
 # ends with \r.
-function Base.readline(x::AbstractBufReader; keep::Bool = false)
-    v = UInt8[]
+function readline_accumulate(x::AbstractBufReader, keep::Bool)
+    buffer = get_buffer(x)
+    # `String(v)` takes ownership of the memory of `v` instead of copying it, also after
+    # `v` has grown. This requires `v` to start with nonempty memory, since an empty
+    # `StringVector` uses Base's shared empty memory, which is not owned by a string.
+    v = empty!(string_vector(length(buffer)))
     while true
-        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        buffer === nothing && return String(v)
         pos = findfirst(==(0x0a), buffer)
         if pos === nothing
             append!(v, buffer)
@@ -474,6 +504,7 @@ function Base.readline(x::AbstractBufReader; keep::Bool = false)
             @inbounds consume(x, pos)
             break
         end
+        buffer = @something get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}} break
     end
     if !keep
         removed = false
