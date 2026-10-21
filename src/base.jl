@@ -576,5 +576,23 @@ function Base.seekend(x::AbstractBufWriter)
     return seek(x, filesize(x))
 end
 
-Base.print(io::AbstractBufWriter, x) = show(io, x)
+# Printing a single value is forwarded to `IOWriter`, which inherits Base's `print` and
+# `show` methods for `IO`.
+Base.print(io::AbstractBufWriter, x) = print(IOWriter(io), x)
 Base.print(io::AbstractBufWriter, s::Union{String, SubString{String}}) = (write(io, s); nothing)
+
+# The varargs methods must be defined here, because otherwise, Base's `print(xs...)`
+# would print the writer itself, and the arguments, to stdout.
+# Unlike Base's `print(::IO, xs...)`, this does not lock the IO in a `try`/`finally`
+# block, which is slow, and not needed because writers are not threadsafe anyway.
+# Recursion instead of a loop lets the compiler specialize on each argument.
+# `Vararg{Any, N}` forces specialization, which Julia otherwise does not do for
+# varargs that are only passed through to another function.
+Base.print(::AbstractBufWriter) = nothing
+
+@inline function Base.print(io::AbstractBufWriter, x, xs::Vararg{Any, N}) where {N}
+    print(io, x)
+    return print(io, xs...)
+end
+
+@inline Base.println(io::AbstractBufWriter, xs::Vararg{Any, N}) where {N} = print(io, xs..., "\n")

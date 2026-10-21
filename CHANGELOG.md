@@ -10,6 +10,12 @@
   `VecWriter(v::Vector{UInt8})` now appends to `v`, whereas previously, it took over the
   memory of `v` and emptied `v`.
 
+## Bugfixes
+* `print` and `println` on an `AbstractBufWriter` now work for all arguments, by
+  printing through an `IOWriter`. Previously, printing anything but a `String` or
+  `SubString{String}` threw a `MethodError`, and the varargs forms, e.g.
+  `println(io, "x")`, silently printed the writer and the arguments to stdout.
+
 # 0.2.8
 * `BufferIO.Testing.BoundedReader` now moves its buffer to new memory on every call to
   `fill_buffer`, `consume` and `close`, and overwrites the old memory by flipping its bits
