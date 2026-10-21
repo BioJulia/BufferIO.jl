@@ -14,6 +14,9 @@
   removed from `IOErrorKinds.IOErrorKind`.
 * Writing to an `AbstractBufWriter` which cannot make room for more data now throws an
   `IOError` of the new kind `WriterFull`, whereas previously, it threw kind `EOF`.
+* `write_repeated` now throws an `IOError` of kind `WriterFull` if the writer cannot make
+  room for all bytes, and always returns the number of bytes requested. Previously, it
+  returned the number of bytes written.
 
 ## New features
 * `IOErrorKinds.IOErrorKind` is now public.

@@ -519,11 +519,12 @@ end
 """
 	write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)::Int
 
-Write `byte` to `io` `n` times, or until `io` is full, and return the number
-of written bytes.
+Write `byte` to `io` `n` times, and return `n` as an `Int`.
 This is equivalent to `write(io, fill(byte, n))`, but more efficient.
 
 Throw an `InexactError` if `n` is negative.
+If `io` cannot make room for all `n` bytes, throw an `IOError` of kind
+`IOErrorKinds.WriterFull`. In that case, some bytes may already have been written.
 
 # Examples
 ```jldoctest
@@ -540,7 +541,7 @@ function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)
     remaining = UInt(n)::UInt
     original = remaining
     while !iszero(remaining)
-        buffer = @something get_nonempty_buffer(io) return (original - remaining) % Int
+        buffer = @something get_nonempty_buffer(io) throw(IOError(IOErrorKinds.WriterFull))
         buffer = @inbounds buffer[1:min(length(buffer) % UInt, remaining)]
         fill!(buffer, byte)
         @inbounds consume(io, length(buffer))
