@@ -72,35 +72,49 @@ In contrast, BufferIO provides the the a buffer to write into directly.
 BufferIO does not implement writing integers, but such a method is useful as an example:
 
 ```julia
-using BufferIO, MemoryViews
+using BufferIO
 
 # Constrain the signature to types of a known binary layout which we can copy
 # directly using a pointer
 const BitInteger = Union{Int, UInt...}
 
-function write(io::AbstractBufWriter, n::BitInteger)
+function write_integer(io::AbstractBufWriter, n::BitInteger)
     buffer = get_buffer(io)
-    while length(buffer) < sizeof(n)
-        n_filled = grow_buffer(io)
-        iszero(n_filled) && throw(IOError(IOErrorKinds.BufferTooShort))
-        buffer = get_buffer(io)
+    if length(buffer) ≥ sizeof(n)
+        # Fast path: Store the integer directly into the buffer
+        GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
+        @inbounds consume(io, sizeof(n))
+    else
+        # Slow path: `unsafe_write` grows the buffer as needed, and writes in chunks
+        # if the buffer can't hold the whole integer.
+        # The `Ref` does not allocate, because only a pointer to it is passed on.
+        unsafe_write(io, Ref(n), sizeof(n) % UInt)
     end
-    GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
-    consume(io, sizeof(n))
     return sizeof(n)
 end
 ```
 
-For types that implement the two-arg method of `get_nonempty_buffer`, the while loop can be omitted,
-since all the required buffer space can be reserved immediately:
+This works for any writer, even one whose buffer can never hold `sizeof(n)` bytes.
+
+Some data must be written to contiguous memory, for example because it is produced by
+a function that writes to a pointer. Use the two-arg method of `get_nonempty_buffer` to
+get a buffer of a minimum size. It returns `nothing` if `io` can't provide one, in which
+case the data can be written to a `VecWriter` first, then copied to `io`.
+Writers with an unbounded buffer, like `BufWriter` and `VecWriter`, never return `nothing`.
 
 ```julia
-# For some hypothetical MyButWriter which implements two-arg `get_nonempty_buffer`
-function write(io::MyBufWriter, n::BitInteger)
-    buffer = get_nonempty_buffer(io, sizeof(n))
-    isnothing(buffer) && throw(IOError(IOErrorKinds.BufferTooShort))
-    GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
-    consume(io, sizeof(n))
-    return sizeof(n)
+# Suppose `encode!(ptr, x)` writes `x` to `ptr` and returns the number of bytes written,
+# and `max_encoded_size(x)` is an upper bound on that number.
+function write_encoded(io::AbstractBufWriter, x)
+    max_size = max_encoded_size(x)
+    buffer = get_nonempty_buffer(io, max_size)
+    if isnothing(buffer)
+        tmp = VecWriter(undef, max_size)
+        write_encoded(tmp, x)
+        return write(io, tmp.vec)
+    end
+    n = GC.@preserve buffer encode!(pointer(buffer), x)
+    consume(io, n)
+    return n
 end
 ```

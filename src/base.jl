@@ -83,15 +83,21 @@ end
 
 """
     unsafe_read(io::AbstractBufReader, ref, nbytes::UInt)::Int
+    unsafe_read(io::AbstractBufReader, ref::Ref{T}, nbytes::UInt)::Int
     unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)::Int
 
 Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
 If `io` reached end of file, stop at EOF.
-`ref` is converted to a pointer using `cref = Base.cconvert(Ptr, ref)`, then
-`Base.unsafe_convert(Ptr{UInt8}, cref)`.
+
+`ref` is converted to a pointer as follows:
+* If `ref` is a `Ref{T}`: `cref = Base.cconvert(Ref{T}, ref)`, then
+  `Base.unsafe_convert(Ref{T}, cref)`, cast to `Ptr{UInt8}`. Hence, `T` may be any
+  bitstype. Throw an `ArgumentError` if `T` is not a bitstype, unless `ref` is a `Ptr`.
+* Otherwise: `cref = Base.cconvert(Ptr, ref)`, then `Base.unsafe_convert(Ptr{UInt8}, cref)`.
 
 Safety: The user must ensure that
 * The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
+  For a `Ref{T}` that is not a `Ptr`, this means `nbytes` must not exceed `sizeof(T)`.
 * `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
   invalid during the `GC.@preserve` block.
 """
@@ -99,6 +105,17 @@ function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
     cref = Base.cconvert(Ptr, ref)
     GC.@preserve cref begin
         ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
+        result = unsafe_read(x, ptr, n)
+    end
+    return result
+end
+
+# See the comment on `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)`
+@inline function Base.unsafe_read(x::AbstractBufReader, ref::Ref{T}, n::UInt)::Int where {T}
+    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only read into a Ref{T} if T is a bitstype"))
+    cref = Base.cconvert(Ref{T}, ref)
+    GC.@preserve cref begin
+        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cref)::Ptr)::Ptr{UInt8}
         result = unsafe_read(x, ptr, n)
     end
     return result
@@ -477,15 +494,35 @@ end
 Write `nbytes` bytes from `ref` (converted to a pointer) to `io`,
 and return `Int(nbytes)`.
 If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.WriterFull)`.
+In that case, some bytes may already have been written.
+
+`ref` may be a `Ref{T}` of any bitstype `T`, in which case the bytes of the referenced
+value are written.
 
 !!! warning
     Safety: If `ref` is a pointer, the caller is responsible for ensuring that the
     pointer is valid, GC protected, and points to at least `nbytes` data of readable memory.
+    If `ref` is a `Ref{T}` that is not a `Ptr`, `nbytes` must not exceed `sizeof(T)`.
 """
 function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
     cval = Base.cconvert(Ptr{UInt8}, ref)
     GC.@preserve cval begin
         ptr = Base.unsafe_convert(Ptr{UInt8}, cval)::Ptr{UInt8}
+        return unsafe_write(io, ptr, nbytes)
+    end
+end
+
+# Base's `unsafe_convert(Ptr{UInt8}, ::Ref{T})` only exists for some `T`, so we convert
+# to `Ptr{T}` instead, like Base's `unsafe_write(::IO, ::Ref, ::Integer)` does.
+# Inlining means the pointer, not the `Ref`, is passed to any non-inlined slow path,
+# which lets the compiler allocate the `Ref` on the stack.
+# A `Ptr{T}` is a `Ref{T}`, but points to raw memory
+# the caller vouches for, so it's exempt. Both checks are resolved at compile time.
+@inline function Base.unsafe_write(io::AbstractBufWriter, ref::Ref{T}, nbytes::UInt)::Int where {T}
+    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only write from a Ref{T} if T is a bitstype"))
+    cval = Base.cconvert(Ref{T}, ref)
+    GC.@preserve cval begin
+        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cval)::Ptr)
         return unsafe_write(io, ptr, nbytes)
     end
 end

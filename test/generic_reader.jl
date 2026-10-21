@@ -131,6 +131,50 @@ end
     arr3 = Vector{UInt8}(undef, 5)
     n_read3 = unsafe_read(empty_io, arr3, UInt(5))
     @test n_read3 == 0
+
+    # Reading into a `Ref` of any type
+    data = collect(UInt8, 1:16)
+    expected = only(reinterpret(UInt64, data[1:8]))
+    ref = Ref{UInt64}(0)
+    @test unsafe_read(GenericBufReader(data), ref, UInt(8)) == 8
+    @test ref[] == expected
+
+    # The reader's buffer is too short to hold the value, so it is read in chunks
+    ref = Ref{UInt64}(0)
+    @test unsafe_read(BoundedReader(data, 3), ref, UInt(8)) == 8
+    @test ref[] == expected
+
+    ref = Ref{NTuple{3, UInt8}}((0x00, 0x00, 0x00))
+    @test unsafe_read(GenericBufReader(b"abcd"), ref, UInt(3)) == 3
+    @test ref[] == (0x61, 0x62, 0x63)
+
+    # Stop at EOF
+    ref = Ref{UInt32}(0)
+    @test unsafe_read(BoundedReader(b"ab", 1), ref, UInt(4)) == 2
+
+    # Reading into a Ref of a non-bitstype would overwrite e.g. a vector's pointer
+    @test_throws ArgumentError unsafe_read(GenericBufReader(data), Ref(UInt8[]), UInt(8))
+    @test_throws ArgumentError unsafe_read(GenericBufReader(data), Ref("abc"), UInt(3))
+
+    # A `Ptr{T}` is a `Ref{T}`, but may point to more than `sizeof(T)` bytes
+    floats = [0.0, 0.0]
+    src = collect(reinterpret(UInt8, [1.0, 2.0]))
+    @test GC.@preserve(floats, unsafe_read(GenericBufReader(src), pointer(floats), UInt(16))) == 16
+    @test floats == [1.0, 2.0]
+end
+
+function read_uint64_from_ref(io::AbstractBufReader)
+    ref = Ref{UInt64}(0)
+    unsafe_read(io, ref, UInt(8))
+    return ref[]
+end
+
+@testset "unsafe_read into Ref does not allocate" begin
+    # Every read takes the slow path, since the buffer holds at most 3 bytes.
+    # BoundedReader can't be used here, since it allocates when filling its buffer.
+    io = BlockReader(zeros(UInt8, 1024), 3)
+    read_uint64_from_ref(io)
+    @test @allocated(read_uint64_from_ref(io)) == 0
 end
 
 @testset "readavailable" begin
