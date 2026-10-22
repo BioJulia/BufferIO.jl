@@ -24,6 +24,16 @@
 * `skip_exact` and `write_repeated` now take `n::Int` instead of `n::Integer`. As a rule,
   BufferIO's own functions take concrete types, while overloads of Base functions accept
   any `Integer`.
+* `filesize(::AbstractBufWriter)` now includes data which is consumed, but not yet
+  flushed, i.e. it is the size the file will have once flushed. Previously, it only
+  counted flushed data. Consequently, `position(io)` is now always in `0:filesize(io)`,
+  and `seek` and `seekend` no longer need to flush before checking their bounds.
+* `seek(::BufWriter)` no longer flushes the wrapped IO. It now writes its buffered data
+  to the wrapped IO, like `shallow_flush`, before seeking. An out-of-bounds `seek` now
+  leaves the writer unchanged, whereas previously, it flushed the writer before throwing.
+* Seeking a `BufReader` now requires the wrapped IO to implement `position`, in addition
+  to `seek` and `filesize`. In return, seeking backwards no longer calls `filesize`
+  on the wrapped IO.
 
 ## New features
 * `IOErrorKinds.IOErrorKind` is now public.

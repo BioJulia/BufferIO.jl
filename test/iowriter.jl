@@ -42,7 +42,7 @@ end
 
     write(io_buf, "test")
     @test position(io_buf) == 4
-    @test filesize(io_buf) == 0  # Not flushed yet
+    @test filesize(io_buf) == 4  # Includes unflushed data
 
     flush(io_buf)
     @test position(io_buf) == 4
@@ -229,7 +229,13 @@ end
     seek(io_writer, 0)
     write(io_writer, "HELLO")  # Not flushed yet
     @test position(io_writer) == 5  # Position includes buffered data
-    @test filesize(io_writer) == 13  # Filesize doesn't include buffered data
+    @test filesize(io_writer) == 13
+
+    # Write past the end with buffered data
+    seek(io_writer, 10)
+    write(io_writer, "ENDING")
+    @test position(io_writer) == 16
+    @test filesize(io_writer) == 16
 end
 
 @testset "IOWriter printing" begin

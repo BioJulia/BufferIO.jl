@@ -336,14 +336,14 @@ function relative_seek(io::ExpandReader, delta::Int)
 end
 
 """
-    drop_own(io::ExpandReader)::Union{Nothing, Memory}
+    drop_own(io::ExpandReader)::Union{Nothing, Memory{UInt8}}
 
 If the own buffer of `io` is in use or `io` is closed, return `nothing`.
 Else, drop the buffer from `io`, and return it.
 The returned memory may be empty, and is owned by the caller, i.e. `io` is
 guaranteed to not keep a reference to it.
 
-Since `ExpandReader`s allocates new buffers as needed, this function does not
+Since `ExpandReader`s allocate new buffers as needed, this function does not
 change the semantic behaviour of `io`, only its allocation patterns, and never
 puts `io` in an invalid state.
 It is intended to free memory if extra buffering is only transiently needed.
