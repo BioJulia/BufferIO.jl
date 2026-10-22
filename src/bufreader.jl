@@ -41,6 +41,9 @@ it must implement:
   `unsafe_read(io, ::Ptr{UInt8}, ::UInt)` and `bytesavailable(io)::Integer`.
   If `readbytes!` are implemented, it should read at least one byte when
   `eof(io) === false`.
+
+Seeking, and `filesize` and `position` of the `BufReader`, additionally require `io` to
+implement `seek`, `filesize` and `position`.
 """
 mutable struct BufReader{T <: IO} <: AbstractBufReader
     const io::T
@@ -355,14 +358,16 @@ julia> read(rdr)
 UInt8[]
 ```
 """
-function Base.seek(x::BufReader, position::Int)
-    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
-    if !in(position, 0:filesize(x.io))
+function Base.seek(x::BufReader, offset::Int)
+    # `position` throws if `x` is closed.
+    # Seeking backwards is always in bounds, so it can skip the `filesize` call,
+    # which is a syscall for files.
+    if !in(offset, 0:position(x)) && !in(offset, 0:filesize(x.io))
         throw(IOError(IOErrorKinds.BadSeek))
     end
     x.start = 1
     x.stop = 0
-    seek(x.io, position)
+    seek(x.io, offset)
     return x
 end
 
