@@ -547,6 +547,16 @@ end
         io = IOBuffer()
         @test_throws IOError copyline(io, rdr; keep = false)
 
+        # Stream ends at \r, which is alone in the buffer when it's filled.
+        # `BoundedReader` invalidates the old buffer on `fill_buffer`, so this
+        # checks that copyline does not write from the stale buffer.
+        for keep in (false, true)
+            rdr = BoundedReader("ab\r", 2)
+            io = IOBuffer()
+            copyline(io, rdr; keep)
+            @test take!(io) == b"ab\r"
+        end
+
         # Length == 1, but buffer can grow
         rdr = BufReader(IOBuffer("abc\r\n"), 1)
         io = IOBuffer()
