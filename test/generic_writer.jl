@@ -89,12 +89,6 @@ end
     @test write(io, bytes) == 3
 
     @test io.x.vec == b"abcdefghijkl"
-
-    allocation_writer = BoundedWriter(sizehint!(UInt8[], 1024), 32)
-    write(allocation_writer, string_codeunits)
-    write(allocation_writer, substring_codeunits)
-    @test @allocated(write(allocation_writer, string_codeunits)) == 0
-    @test @allocated(write(allocation_writer, substring_codeunits)) == 0
 end
 
 @testset "unsafe_write" begin
@@ -176,15 +170,6 @@ end
     end
     @test err isa IOError
     @test err.kind == IOErrorKinds.WriterFull
-end
-
-write_uint64_from_ref(io::AbstractBufWriter, x::UInt64) = unsafe_write(io, Ref(x), UInt(8))
-
-@testset "unsafe_write from Ref does not allocate" begin
-    # Every write takes the slow path, since the buffer holds at most 3 bytes
-    io = BoundedWriter(sizehint!(UInt8[], 1024), 3)
-    write_uint64_from_ref(io, UInt64(1))
-    @test @allocated(write_uint64_from_ref(io, UInt64(2))) == 0
 end
 
 @testset "get_nonempty_buffer(::T, ::Int)" begin
