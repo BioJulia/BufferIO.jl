@@ -37,7 +37,7 @@ end
 """
     read(io::AbstractBufReader, nb::Integer)::Vector{UInt8}
 
-Read at exactly `nb` bytes from `io`, or until end of file, and return the
+Read bytes from `io` until either `nb` bytes are read or `io` is EOF, and return the
 bytes read as a `Vector{UInt8}`.
 
 This allocates a `Vector{UInt8}` of size `nb`, so do not pass a large
@@ -82,73 +82,6 @@ function Base.read(x::AbstractBufReader, nb::Integer)
 end
 
 """
-    unsafe_read(io::AbstractBufReader, ref, nbytes::Integer)::Int
-    unsafe_read(io::AbstractBufReader, ref::Ref{T}, nbytes::Integer)::Int
-    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Integer)::Int
-
-Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
-If `io` reached end of file, stop at EOF.
-
-`ref` is converted to a pointer as follows:
-* If `ref` is a `Ref{T}`: `cref = Base.cconvert(Ref{T}, ref)`, then
-  `Base.unsafe_convert(Ref{T}, cref)`, cast to `Ptr{UInt8}`. Hence, `T` may be any
-  bitstype. Throw an `ArgumentError` if `T` is not a bitstype, unless `ref` is a `Ptr`.
-* Otherwise: `cref = Base.cconvert(Ptr, ref)`, then `Base.unsafe_convert(Ptr{UInt8}, cref)`.
-
-Safety: The user must ensure that
-* The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
-  For a `Ref{T}` that is not a `Ptr`, this means `nbytes` must not exceed `sizeof(T)`.
-* `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
-  invalid during the `GC.@preserve` block.
-"""
-function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
-    cref = Base.cconvert(Ptr, ref)
-    GC.@preserve cref begin
-        ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
-        result = unsafe_read(x, ptr, n)
-    end
-    return result
-end
-
-# Base's `IO` accepts any `Integer` for `nbytes`. Inlined for the same reason as the
-# `Ref{T}` method below.
-@inline function Base.unsafe_read(x::AbstractBufReader, ref, n::Integer)::Int
-    return unsafe_read(x, ref, UInt(n)::UInt)
-end
-
-# See the comment on `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)`
-@inline function Base.unsafe_read(x::AbstractBufReader, ref::Ref{T}, n::UInt)::Int where {T}
-    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only read into a Ref{T} if T is a bitstype"))
-    cref = Base.cconvert(Ref{T}, ref)
-    GC.@preserve cref begin
-        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cref)::Ptr)::Ptr{UInt8}
-        result = unsafe_read(x, ptr, n)
-    end
-    return result
-end
-
-function Base.unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
-    buffer = get_buffer(x)
-    (length(buffer) % UInt) < n && return _unsafe_read(x, p, n)
-    GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), n)
-    @inbounds consume(x, n % Int)
-    return n % Int
-end
-
-@noinline function _unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
-    p_start = p
-    while p < (p_start + n)
-        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && break
-        L = min(length(buf) % UInt, (p_start + n - p))
-        GC.@preserve buf unsafe_copyto!(p, pointer(buf), L)
-        p += L
-        @inbounds consume(x, L % Int)
-    end
-    return (p - p_start) % Int
-end
-
-"""
     readavailable(io::AbstractBufReader)::Vector{UInt8}
 
 Read the available bytes of `io` to a new `Vector{UInt8}`, except if zero bytes
@@ -181,7 +114,7 @@ function Base.readavailable(x::AbstractBufReader)
 end
 
 """
-    read(io::AbstractBufReader, UInt8)::UInt8
+    peek(io::AbstractBufReader, UInt8)::UInt8
 
 Get the next `UInt8` in `io`, without advancing the IO,
 or throw an `IOError` containing `IOErrorKinds.EOF` if `io` is EOF.
@@ -408,55 +341,6 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
     return out # unreachable
 end
 
-"""
-    skip(io::AbstractBufReader, n::Integer)::Int
-
-Read `n` bytes from `io`, or until EOF, whichever comes first, and discard
-the read bytes. Return the number of bytes read.
-
-This function is defined generically for `AbstractBufReader` by reading bytes,
-not by seeking. Subtypes of `AbstractBufReader` may implement this using seeking.
-In order to skip a generic `AbstractBufReader` and guarantee seeking is used,
-use `seek(io, position(io) + n)`.
-
-Throws an `ArgumentError` if `n < 0`.
-
-See also: [`skip_exact`](@ref)
-
-# Examples
-```jldoctest
-julia> reader = CursorReader("abcdefghij");
-
-julia> skip(reader, 5)
-5
-
-julia> read(reader, 3) |> String
-"fgh"
-
-julia> skip(reader, 10) # 2 bytes remaining
-2
-
-julia> eof(reader)
-true
-
-julia> skip(reader, 100)
-0
-```
-"""
-function Base.skip(io::AbstractBufReader, n::Integer)
-    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
-    n = UInt(n)::UInt
-    remaining = n
-    while !iszero(remaining)
-        buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buffer) && break
-        mn = min(length(buffer) % UInt, remaining) % Int
-        @inbounds consume(io, mn)
-        remaining -= mn
-    end
-    return (n - remaining) % Int
-end
-
 function Base.readline(x::AbstractBufReader; keep::Bool = false)
     buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
     buffer === nothing && return ""
@@ -646,8 +530,67 @@ function Base.write(
     return write(io, ImmutableMemoryView(v))
 end
 
-# Subtypes implement `seek(::T, ::Int)`. Without this method, generic code calling
-# e.g. `seek(io, Int32(1))` would throw a `MethodError`.
+"""
+    close(io::Union{AbstractBufReader, AbstractBufWriter})
+
+Close `io`, releasing its underlying resources, such as a wrapped IO or a file handle.
+If `io` is a writer, `close` first flushes `io`, so no written data is lost.
+
+Closing is idempotent: Closing an `io` which is already closed does nothing.
+
+After `io` is closed, the behaviour of operations on `io` is unspecified, except
+that `close` and `isopen` behave as documented, and that no operation causes undefined
+behaviour. Depending on the implementation, operations on a closed `io` may throw an
+`IOError` of kind `ClosedIO`, or continue to work normally.
+
+See also: [`take_inner`](@ref)
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abc"));
+
+julia> close(reader); close(reader) # closing twice does nothing
+
+julia> isopen(reader)
+false
+
+julia> read(reader)
+ERROR: Unsupported operation on closed IO
+[...]
+```
+"""
+Base.close(::Union{AbstractBufReader, AbstractBufWriter})
+
+"""
+    isopen(io::Union{AbstractBufReader, AbstractBufWriter})::Bool
+
+Return whether `io` is still usable, that is, return `false` if and only if `io` has been
+made unusable by `close` or `take_inner`, or a similar function.
+
+For types that remain usable after `close`, such as [`VecWriter`](@ref), `isopen`
+should return `true`, even after `close` has been called on the io. 
+Hence, `isopen(io)` does not generically tell whether `close(io)` has been called.
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abc"));
+
+julia> isopen(reader)
+true
+
+julia> close(reader); isopen(reader)
+false
+
+julia> cursor = CursorReader("abc");
+
+julia> close(cursor); isopen(cursor) # closing a CursorReader does nothing
+true
+```
+"""
+Base.isopen(::Union{AbstractBufReader, AbstractBufWriter})
+
+# Subtypes implement `seek(::T, ::Int)`. Like Base's `seek`, this accepts any `Integer`,
+# converting and forwarding it to the subtype's method.
 # The `Int` check stops a subtype without a `seek` method from recursing forever.
 function Base.seek(x::Union{AbstractBufReader, AbstractBufWriter}, offset::Integer)
     offset isa Int && throw(MethodError(seek, (x, offset)))
