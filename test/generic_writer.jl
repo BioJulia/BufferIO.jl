@@ -354,3 +354,31 @@ end
     @test err.kind == IOErrorKinds.WriterFull
     @test write_repeated(FixedWriter(3), 0x61, 3) === 3
 end
+
+@testset "close and isopen" begin
+    # Each writer, and whether closing makes it unusable
+    writers = [
+        (() -> BufWriter(IOBuffer()), true),
+        (() -> BoundedWriter(UInt8[], 4), true),
+        (() -> VecWriter(), false),
+        (() -> GenericBufWriter(), false),
+        (() -> FixedWriter(4), false),
+    ]
+    for (make, closing_disables) in writers
+        writer = make()
+        @test isopen(writer)
+        @test close(writer) === nothing
+        @test isopen(writer) == !closing_disables
+        # Closing is idempotent
+        @test close(writer) === nothing
+        @test isopen(writer) == !closing_disables
+    end
+
+    # Closing flushes first
+    sink = UInt8[]
+    writer = BoundedWriter(sink, 4)
+    write(writer, "ab")
+    @test isempty(sink)
+    close(writer)
+    @test sink == b"ab"
+end

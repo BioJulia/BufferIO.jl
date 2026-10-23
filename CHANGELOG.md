@@ -21,9 +21,26 @@
   have been renamed to `keep`, with the opposite meaning and default (`keep = false`),
   to match `eachline`, `readline` and `copyline`. Replace `chomp = false` with
   `keep = true`.
-* `skip_exact` and `write_repeated` now take `n::Int` instead of `n::Integer`. As a rule,
-  BufferIO's own functions take concrete types, while overloads of Base functions accept
-  any `Integer`.
+* `skip(::AbstractBufReader, n)` has been removed, because it read and discarded bytes,
+  whereas `Base.skip` is documented to seek relative to the current position.
+  The same functionality is now provided by the new function `discard(io, n::Int)`.
+  Correspondingly, `skip_exact` has been renamed to `discard_exact`.
+  To seek relative to the current position, use `relative_seek`.
+* `unsafe_read(::AbstractBufReader, ref, nbytes)` has been removed, because it silently
+  stopped at EOF, whereas `Base.unsafe_read` is documented to copy `nbytes` bytes.
+  The same functionality is now provided by the new function
+  `unsafe_read_all!(io, ref, nbytes::Int)`, the unsafe counterpart of `read_all!`.
+  It reads into a `Ref` of any bitstype, and throws an `ArgumentError` if `nbytes` is
+  negative. `unsafe_read(::IOReader, ...)` is unaffected.
+* `isopen` is now a required method of `AbstractBufReader` and `AbstractBufWriter`,
+  like `close`. It returns whether the IO is still usable, so types whose `close` does
+  nothing, such as `CursorReader`, always return `true`. Subtypes defined outside BufferIO
+  which do not implement `isopen` must now do so.
+  The behaviour of `close`, `isopen` and `take_inner` is now documented: `close` is
+  idempotent, and closing a writer flushes it first.
+* `discard_exact` (previously `skip_exact`) and `write_repeated` now take `n::Int` instead
+  of `n::Integer`. As a rule, BufferIO's own functions take concrete types, while
+  overloads of Base functions accept any `Integer`.
 * `filesize(::AbstractBufWriter)` now includes data which is consumed, but not yet
   flushed, i.e. it is the size the file will have once flushed. Previously, it only
   counted flushed data. Consequently, `position(io)` is now always in `0:filesize(io)`,
@@ -43,7 +60,7 @@
 * `seek` now accepts any `Integer` for all `AbstractBufReader`s and `AbstractBufWriter`s,
   through a generic fallback that converts to `Int`. Implementors still define `seek(::T, ::Int)`.
   Previously, e.g. `seek(::BufReader, ::Int32)` threw a `MethodError`.
-* `unsafe_read` and `unsafe_write` now accept any `Integer` for `nbytes`, not just `UInt`.
+* `unsafe_write` now accepts any `Integer` for `nbytes`, not just `UInt`.
 * `readline` on an `AbstractBufReader` is faster: 1.4x to 3x for lines that fit in the
   buffer, and 3x to 5x for lines longer than the buffer. If the reader can grow its
   buffer, `readline` now grows it to fit the line, like `line_views` does.
@@ -57,9 +74,8 @@
   printing through an `IOWriter`. Previously, printing anything but a `String` or
   `SubString{String}` threw a `MethodError`, and the varargs forms, e.g.
   `println(io, "x")`, silently printed the writer and the arguments to stdout.
-* `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)` and
-  `unsafe_read(::AbstractBufReader, ::Ref, ::UInt)` now work for a `Ref` of any type.
-  Previously, they threw a `MethodError` for e.g. `Ref{Int64}`.
+* `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)` now works for a `Ref` of any type.
+  Previously, it threw a `MethodError` for e.g. `Ref{Int64}`.
 
 # 0.2.8
 * `BufferIO.Testing.BoundedReader` now moves its buffer to new memory on every call to

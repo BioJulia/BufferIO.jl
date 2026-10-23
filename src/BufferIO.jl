@@ -28,8 +28,10 @@ export AbstractBufReader,
     resize_buffer,
     read_into!,
     read_all!,
+    unsafe_read_all!,
     line_views,
-    skip_exact,
+    discard,
+    discard_exact,
     takestring!,
     write_repeated,
     relative_seek,
@@ -167,11 +169,11 @@ Subtypes `T` of this type should implement at least:
 * `fill_buffer(io::T)`
 * `consume(io::T, n::Int)`
 * `Base.close(io::T)`
+* `Base.isopen(io::T)`
 
 Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
 for details of the implementation:
 
-* `Base.isopen(io::T)`
 * `Base.seek(io::T, ::Int)`
 * `relative_seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
@@ -208,10 +210,10 @@ Subtypes `T` of this type should implement at least:
 * `grow_buffer(io::T)`
 * `consume(io::T, n::Int)`
 * `Base.close(io::T)`
+* `Base.isopen(io::T)`
 * `Base.flush(io::T)`
 
 They may optionally implement
-* `Base.isopen(io::T)`
 * `Base.seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`
@@ -329,9 +331,13 @@ function consume end
 """
     take_inner(io)
 
-Return the inner io wrapped by `io`.
+Close `io` without closing the inner io wrapped by `io`, and return the inner io.
 
-After calling `take_inner`, `io` is considered closed, and should not be used.
+If `io` is a writer, any data buffered in `io` is first written to the inner io,
+so no written data is lost. The inner io is not flushed.
+
+As with `close`, `io` should not be used after calling `take_inner`, and `isopen(io)`
+returns `false`, unless `io` remains usable.
 In particular, operations on `io` may mutate the wrapped IO, and so may invalidate it.
 Calling `take_inner` on an `io` which is closed, or whose wrapped IO has already
 been taken, is not allowed.
@@ -450,12 +456,142 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 end
 
 """
-    skip_exact(io::AbstractBufReader, n::Int)::Nothing
+    unsafe_read_all!(io::AbstractBufReader, ref, nbytes::Int)::Int
 
-Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
-not be skipped.
+Copy bytes from `io` into `ref` (converted to a pointer) until either `nbytes` bytes are
+copied or `io` is EOF, returning the number of bytes copied.
+This is the unsafe counterpart of [`read_all!`](@ref).
 
-See also: [`Base.skip`](@ref)
+Throw an `ArgumentError` if `nbytes` is negative.
+
+`ref` is converted to a pointer as follows:
+* If `ref` is a `Ref{T}`: `cref = Base.cconvert(Ref{T}, ref)`, then
+  `Base.unsafe_convert(Ref{T}, cref)`, cast to `Ptr{UInt8}`. Hence, `T` may be any
+  bitstype. Throw an `ArgumentError` if `T` is not a bitstype, unless `ref` is a `Ptr`.
+* Otherwise: `cref = Base.cconvert(Ptr, ref)`, then `Base.unsafe_convert(Ptr{UInt8}, cref)`.
+
+Safety: The user must ensure that
+* The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
+  For a `Ref{T}` that is not a `Ptr`, this means `nbytes` must not exceed `sizeof(T)`.
+* `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
+  invalid during the `GC.@preserve` block.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> ref = Ref((0x00, 0x00));
+
+julia> unsafe_read_all!(reader, ref, 2)
+2
+
+julia> ref[] == (UInt8('a'), UInt8('b'))
+true
+
+julia> v = zeros(UInt8, 8);
+
+julia> GC.@preserve v unsafe_read_all!(reader, pointer(v), 8) # 4 bytes remaining
+4
+
+julia> String(v[1:4])
+"cdef"
+```
+"""
+function unsafe_read_all!(x::AbstractBufReader, ref, n::Int)::Int
+    cref = Base.cconvert(Ptr, ref)
+    GC.@preserve cref begin
+        ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
+        result = unsafe_read_all!(x, ptr, n)
+    end
+    return result
+end
+
+# See the comment on `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)`
+@inline function unsafe_read_all!(x::AbstractBufReader, ref::Ref{T}, n::Int)::Int where {T}
+    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only read into a Ref{T} if T is a bitstype"))
+    cref = Base.cconvert(Ref{T}, ref)
+    GC.@preserve cref begin
+        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cref)::Ptr)::Ptr{UInt8}
+        result = unsafe_read_all!(x, ptr, n)
+    end
+    return result
+end
+
+function unsafe_read_all!(x::AbstractBufReader, p::Ptr{UInt8}, n::Int)::Int
+    n < 0 && throw(ArgumentError("nbytes cannot be negative"))
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    length(buffer) < n && return unsafe_read_all_slowpath!(x, p, n)
+    GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), n % UInt)
+    @inbounds consume(x, n)
+    return n
+end
+
+@noinline function unsafe_read_all_slowpath!(x::AbstractBufReader, p::Ptr{UInt8}, n::Int)::Int
+    remaining = n
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        isnothing(buffer) && break
+        mn = min(length(buffer), remaining)
+        GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), mn % UInt)
+        p += mn
+        remaining -= mn
+        @inbounds consume(x, mn)
+    end
+    return n - remaining
+end
+
+"""
+    discard(io::AbstractBufReader, n::Int)::Int
+
+Read `n` bytes from `io`, or until EOF, whichever comes first, and discard
+the read bytes. Return the number of bytes discarded.
+
+This function is defined generically for `AbstractBufReader` by reading bytes,
+not by seeking, so it works on readers that can't seek.
+Subtypes of `AbstractBufReader` may implement this using seeking.
+
+Throw an `ArgumentError` if `n < 0`.
+
+See also: [`discard_exact`](@ref)
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdefghij");
+
+julia> discard(reader, 5)
+5
+
+julia> read(reader, 3) |> String
+"fgh"
+
+julia> discard(reader, 10) # 2 bytes remaining
+2
+
+julia> eof(reader)
+true
+
+julia> discard(reader, 100)
+0
+```
+"""
+function discard(io::AbstractBufReader, n::Int)
+    n < 0 && throw(ArgumentError("Cannot discard a negative number of bytes"))
+    remaining = n
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        isnothing(buffer) && break
+        mn = min(length(buffer), remaining)
+        @inbounds consume(io, mn)
+        remaining -= mn
+    end
+    return n - remaining
+end
+
+"""
+    discard_exact(io::AbstractBufReader, n::Int)::Nothing
+
+Like [`discard`](@ref), but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes
+could not be discarded.
 
 # Examples
 ```jldoctest
@@ -464,19 +600,19 @@ julia> reader = CursorReader("abcdefghij");
 julia> position(reader)
 0
 
-julia> skip_exact(reader, 3)
+julia> discard_exact(reader, 3)
 
 julia> read(reader, 2) |> String
 "de"
 
-julia> skip_exact(reader, 6) # 5 bytes remaining
+julia> discard_exact(reader, 6) # 5 bytes remaining
 ERROR: End of file
 ```
 """
-# `skip` throws the `ArgumentError` for negative `n`
-function skip_exact(io::AbstractBufReader, n::Int)
-    skipped = skip(io, n)
-    skipped == n || throw(IOError(IOErrorKinds.EOF))
+function discard_exact(io::AbstractBufReader, n::Int)
+    # `discard` throws the `ArgumentError` for negative `n`
+    discarded = discard(io, n)
+    discarded == n || throw(IOError(IOErrorKinds.EOF))
     return nothing
 end
 

@@ -266,7 +266,7 @@ end
             read,
             r -> read(r, 3),
             readline,
-            r -> skip(r, 2),
+            r -> discard(r, 2),
             r -> seek(r, 0),
             r -> seek(r, 6),
             r -> relative_seek(r, 1),
