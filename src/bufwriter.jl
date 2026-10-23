@@ -44,7 +44,7 @@ Seeking is not supported if `io` is in append mode (e.g. a file opened with
 `append = true`), because then `io` ignores its position when writing.
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
-    io::T
+    const io::T
     # Always points to index 1 of the buffer. Storing a `MemoryRef` and the capacity,
     # instead of the `Memory`, saves a dependent load in `get_buffer`, since the
     # data pointer is stored inline in the ref.
@@ -384,9 +384,13 @@ function Base.close(x::BufWriter)
     # IO throws. This keeps the content of the memory.
     n_buffered = x.consumed
     mark_closed!(x)
-    iszero(n_buffered) || write_buffered(x, n_buffered)
-    # Per the docstring of `close(::IO)`, this flushes the underlying IO
-    close(x.io)
+    try
+        iszero(n_buffered) || write_buffered(x, n_buffered)
+    finally
+        # Per the docstring of `close(::IO)`, this flushes the underlying IO.
+        # Close it even if writing failed, since `x` can't be closed again.
+        close(x.io)
+    end
     return nothing
 end
 
@@ -560,7 +564,7 @@ julia> (filesize(io), position(io))
 """
 function Base.position(io::BufWriter)
     io.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
-    return position(io.io) + io.consumed
+    return Int(position(io.io))::Int + io.consumed
 end
 
 # This specialized method is used whenever `n_bytes` is longer than the remaining room in `io`.

@@ -163,9 +163,9 @@ Base.close(x::FailingWriteIO) = (x.is_closed = true; nothing)
     writer = BufWriter(io)
     write(writer, "abc")
     @test_throws ErrorException close(writer)
-    # The writer is closed, even though the underlying IO is not
+    # Both the writer and the underlying IO are closed, even though writing failed
     @test !isopen(writer)
-    @test !io.is_closed
+    @test io.is_closed
     @test_throws IOError write(writer, "abc")
     @test isnothing(close(writer))
 end

@@ -307,8 +307,9 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                         # progress because we would always conservatively avoid writing anything, so error
                         throw(IOError(IOErrorKinds.BufferTooShort))
                     elseif iszero(n_filled)
-                        # If nothing was filled, the stream ended at \r. Then, we can write everything out
-                        buffer
+                        # If nothing was filled, the stream ended at \r. Then, we can write everything out.
+                        # Get the buffer again, since `fill_buffer` may have invalidated it.
+                        get_buffer(from)
                     else
                         # Else, we need to fill in more bytes
                         buffer = get_nonempty_buffer(from)::ImmutableMemoryView{UInt8}
