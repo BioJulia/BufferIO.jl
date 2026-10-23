@@ -163,9 +163,9 @@ Base.close(x::FailingWriteIO) = (x.is_closed = true; nothing)
     writer = BufWriter(io)
     write(writer, "abc")
     @test_throws ErrorException close(writer)
-    # The writer is closed, even though the underlying IO is not
+    # Both the writer and the underlying IO are closed, even though writing failed
     @test !isopen(writer)
-    @test !io.is_closed
+    @test io.is_closed
     @test_throws IOError write(writer, "abc")
     @test isnothing(close(writer))
 end
@@ -244,6 +244,10 @@ end
         write(writer, "abc")
         @test !isempty(get_nonempty_buffer(writer, min_size))
     end
+
+    # The two-arg method never returns `nothing`, and the compiler knows it
+    writer = BufWriter(IOBuffer(), 3)
+    @test (@inferred get_nonempty_buffer(writer, 100)) isa MutableMemoryView{UInt8}
 end
 
 @testset "edge cases" begin
@@ -291,20 +295,6 @@ end
         @test e isa IOError
         @test e.kind == IOErrorKinds.ConsumeBufferError
     end
-end
-
-@testset "Write numbers" begin
-    io = IOBuffer()
-    writer = BufWriter(io, 3)
-    write(writer, 0x01)
-    write(writer, htol(0x0302))
-    write(writer, 0x07060504)
-    write(writer, 0x0f0e0d0c0b0a0908)
-    write(writer, 1.2443)
-    shallow_flush(writer)
-    data = take!(io)
-    @test data[1:15] == 1:15
-    @test reinterpret(Float64, data[16:23]) == [1.2443]
 end
 
 @testset "resize_buffer" begin
@@ -358,7 +348,8 @@ end
     # Write some data (buffered, not flushed)
     write(writer, "hello")
     @test position(writer) == 5  # Position includes buffered data
-    @test filesize(writer) == 0  # Filesize does not include buffered data
+    @test filesize(writer) == 5  # Filesize includes buffered data
+    @test isempty(take!(copy(io))) # Nothing has been flushed
 
     # Flush and check again
     flush(writer)
@@ -368,7 +359,7 @@ end
     # Write more data
     write(writer, " world")
     @test position(writer) == 11
-    @test filesize(writer) == 5  # Still only flushed data
+    @test filesize(writer) == 11
 
     # Partial flush via shallow_flush
     shallow_flush(writer)
@@ -378,9 +369,49 @@ end
     # Write after flush
     write(writer, "!")
     @test position(writer) == 12
-    @test filesize(writer) == 11
+    @test filesize(writer) == 12
+
+    # Overwriting buffered data within the file does not change the filesize
+    seek(writer, 2)
+    write(writer, "LL")
+    @test position(writer) == 4
+    @test filesize(writer) == 12
+
+    # Writing past the end of the file extends it
+    seek(writer, 10)
+    write(writer, "abcd")
+    @test position(writer) == 14
+    @test filesize(writer) == 14
+    flush(writer)
+    @test String(take!(io)) == "heLLo worlabcd"
 
     close(writer)
+    @test_throws IOError filesize(writer)
+    @test_throws IOError position(writer)
+end
+
+@testset "position and filesize with IOStream" begin
+    # IOStream has its own buffer, and its filesize does not include it.
+    path = tempname()
+    try
+        writer = BufWriter(open(path, "w"), 10)
+        write(writer, "hello")
+        @test filesize(writer) == 5
+        shallow_flush(writer) # into the buffer of the IOStream
+        @test filesize(writer) == 5
+        write(writer, " world")
+        @test (position(writer), filesize(writer)) == (11, 11)
+        seek(writer, 1)
+        @test (position(writer), filesize(writer)) == (1, 11)
+        write(writer, "E")
+        @test seekend(writer) === writer
+        @test (position(writer), filesize(writer)) == (11, 11)
+        write(writer, "!")
+        close(writer)
+        @test read(path, String) == "hEllo world!"
+    finally
+        rm(path; force = true)
+    end
 end
 
 @testset "seek functionality" begin
@@ -424,12 +455,18 @@ end
     writer2 = BufWriter(io2, 10)
     write(writer2, "hello")
     @test position(writer2) == 5
-    @test filesize(writer2) == 0  # Not flushed yet
+    @test filesize(writer2) == 5
 
-    # Seek should flush first
+    # Seeking backwards into unflushed data is valid, and keeps the data
+    seek(writer2, 3)
+    @test position(writer2) == 3
+    @test filesize(writer2) == 5
+    write(writer2, "L")
+    flush(writer2)
+    seekstart(io2)
+    @test read(io2, String) == "helLo"
+
     seek(writer2, 0)
-    @test position(writer2) == 0
-    @test filesize(writer2) == 5  # Now flushed
     write(writer2, "HELLO")
     flush(writer2)
     seekstart(io2)
@@ -437,7 +474,7 @@ end
 
     close(writer2)
 
-    # seekend must account for unflushed data extending the file
+    # seekend accounts for unflushed data extending the file
     io2 = IOBuffer()
     writer2 = BufWriter(io2, 10)
     write(writer2, "abc")
@@ -458,6 +495,8 @@ end
     write(writer3, "test")
     flush(writer3)
 
+    @test seek(writer3, Int32(1)) === writer3
+    @test_throws IOError seek(writer3, Int8(-1))
     @test_throws IOError seek(writer3, -1)
     @test_throws IOError seek(writer3, filesize(writer3) + 1)
 
@@ -479,6 +518,16 @@ end
     end
 
     close(writer3)
+    @test_throws IOError seek(writer3, 0)
+
+    # An invalid seek leaves the writer unchanged
+    io4 = IOBuffer()
+    writer4 = BufWriter(io4, 10)
+    write(writer4, "abc")
+    @test_throws IOError seek(writer4, 4)
+    @test get_unflushed(writer4) == b"abc"
+    @test isempty(take!(copy(io4)))
+    @test position(writer4) == 3
 end
 
 @testset "Automatic closing" begin

@@ -28,8 +28,10 @@ export AbstractBufReader,
     resize_buffer,
     read_into!,
     read_all!,
+    unsafe_read_all!,
     line_views,
-    skip_exact,
+    discard,
+    discard_exact,
     takestring!,
     write_repeated,
     relative_seek,
@@ -59,17 +61,11 @@ module IOErrorKinds
     * `BufferTooShort`: Thrown by various functions that require a minimum buffer size, which
       the `io` cannot provide. This should only be thrown if the buffer is unable to grow to
       the required size, and not if e.g. the buffer does not expand because the io is EOF.
+    * `WriterFull`: Occurs when a writer cannot make room for more data, i.e. when
+      `grow_buffer` returns zero, such that a write operation cannot complete.
+      If a writer can make room, but not a contiguous buffer of a required minimum size,
+      `BufferTooShort` is thrown instead.
     * `BadSeek`: An out-of-bounds seek operation was attempted
-    * `PermissionDenied`: Acces was denied to a system (filesystem, network, OS, etc.) resource
-    * `NotFound`: Resource was not found, e.g. no such file or directory
-    * `BrokenPipe`: The operation failed because a pipe was broken. This typically happens when
-       writing to stdout or stderr, which then gets closed.
-    * `AlreadyExists`: Resource (e.g. file) could not be created because it already exists
-    * `NotADirectory`: Resource is unexpectedly not a directory. E.g. a path contained a non-directory
-      file as an intermediate component.
-    * `IsADirectory`: Resource is a directory when a non-directory was expected
-    * `DirectoryNotEmpty`: Operation cannot succeed because it requires an empty directory
-    * `InvalidFileName`: File name was invalid for platform, e.g. too long name, or invalid characters.
     * `ClosedIO`: Indicates an operation was done on a closed IO.
     """
     @enum IOErrorKind::UInt8 begin
@@ -77,29 +73,16 @@ module IOErrorKinds
         BadSeek
         EOF
         BufferTooShort
-        PermissionDenied
-        NotFound
-        BrokenPipe
-        AlreadyExists
-        NotADirectory
-        IsADirectory
-        DirectoryNotEmpty
-        InvalidFileName
+        WriterFull
         ClosedIO
     end
 
-    public ConsumeBufferError,
+    public IOErrorKind,
+        ConsumeBufferError,
         BadSeek,
         EOF,
         BufferTooShort,
-        PermissionDenied,
-        NotFound,
-        BrokenPipe,
-        AlreadyExists,
-        NotADirectory,
-        IsADirectory,
-        DirectoryNotEmpty,
-        InvalidFileName,
+        WriterFull,
         ClosedIO
 end
 
@@ -143,22 +126,8 @@ function Base.showerror(io::IO, err::IOError)
         "End of file"
     elseif kind === IOErrorKinds.BufferTooShort
         "Buffer of reader or writer is too short for operation"
-    elseif kind === IOErrorKinds.PermissionDenied
-        "Permission denied"
-    elseif kind === IOErrorKinds.NotFound
-        "Resource, perhaps a file, not found"
-    elseif kind === IOErrorKinds.BrokenPipe
-        "Write to broken UNIX pipe, possibly writing to closed stdout"
-    elseif kind === IOErrorKinds.AlreadyExists
-        "Unique resource already exists, possibly a filesystem path"
-    elseif kind === IOErrorKinds.NotADirectory
-        "Not a directory"
-    elseif kind === IOErrorKinds.IsADirectory
-        "File is a directory"
-    elseif kind === IOErrorKinds.DirectoryNotEmpty
-        "Directory not empty"
-    elseif kind === IOErrorKinds.InvalidFileName
-        "Invalid file name"
+    elseif kind === IOErrorKinds.WriterFull
+        "Writer is full and cannot make room for more data"
     elseif kind === IOErrorKinds.ClosedIO
         "Unsupported operation on closed IO"
     end
@@ -180,7 +149,6 @@ function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
     @inbounds return x[1:len]
 end
 
-
 """
     abstract type AbstractBufReader end
 
@@ -201,11 +169,11 @@ Subtypes `T` of this type should implement at least:
 * `fill_buffer(io::T)`
 * `consume(io::T, n::Int)`
 * `Base.close(io::T)`
+* `Base.isopen(io::T)`
 
 Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
 for details of the implementation:
 
-* `Base.isopen(io::T)`
 * `Base.seek(io::T, ::Int)`
 * `relative_seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
@@ -242,10 +210,10 @@ Subtypes `T` of this type should implement at least:
 * `grow_buffer(io::T)`
 * `consume(io::T, n::Int)`
 * `Base.close(io::T)`
+* `Base.isopen(io::T)`
 * `Base.flush(io::T)`
 
 They may optionally implement
-* `Base.isopen(io::T)`
 * `Base.seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`
@@ -363,9 +331,13 @@ function consume end
 """
     take_inner(io)
 
-Return the inner io wrapped by `io`.
+Close `io` without closing the inner io wrapped by `io`, and return the inner io.
 
-After calling `take_inner`, `io` is considered closed, and should not be used.
+If `io` is a writer, any data buffered in `io` is first written to the inner io,
+so no written data is lost. The inner io is not flushed.
+
+As with `close`, `io` should not be used after calling `take_inner`, and `isopen(io)`
+returns `false`, unless `io` remains usable.
 In particular, operations on `io` may mutate the wrapped IO, and so may invalidate it.
 Calling `take_inner` on an `io` which is closed, or whose wrapped IO has already
 been taken, is not allowed.
@@ -484,12 +456,142 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 end
 
 """
-    skip_exact(io::AbstractBufReader, n::Integer)::Nothing
+    unsafe_read_all!(io::AbstractBufReader, ref, nbytes::Int)::Int
 
-Like `skip`, but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes could
-not be skipped.
+Copy bytes from `io` into `ref` (converted to a pointer) until either `nbytes` bytes are
+copied or `io` is EOF, returning the number of bytes copied.
+This is the unsafe counterpart of [`read_all!`](@ref).
 
-See also: [`Base.skip`](@ref)
+Throw an `ArgumentError` if `nbytes` is negative.
+
+`ref` is converted to a pointer as follows:
+* If `ref` is a `Ref{T}`: `cref = Base.cconvert(Ref{T}, ref)`, then
+  `Base.unsafe_convert(Ref{T}, cref)`, cast to `Ptr{UInt8}`. Hence, `T` may be any
+  bitstype. Throw an `ArgumentError` if `T` is not a bitstype, unless `ref` is a `Ptr`.
+* Otherwise: `cref = Base.cconvert(Ptr, ref)`, then `Base.unsafe_convert(Ptr{UInt8}, cref)`.
+
+Safety: The user must ensure that
+* The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
+  For a `Ref{T}` that is not a `Ptr`, this means `nbytes` must not exceed `sizeof(T)`.
+* `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
+  invalid during the `GC.@preserve` block.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> ref = Ref((0x00, 0x00));
+
+julia> unsafe_read_all!(reader, ref, 2)
+2
+
+julia> ref[] == (UInt8('a'), UInt8('b'))
+true
+
+julia> v = zeros(UInt8, 8);
+
+julia> GC.@preserve v unsafe_read_all!(reader, pointer(v), 8) # 4 bytes remaining
+4
+
+julia> String(v[1:4])
+"cdef"
+```
+"""
+function unsafe_read_all!(x::AbstractBufReader, ref, n::Int)::Int
+    cref = Base.cconvert(Ptr, ref)
+    GC.@preserve cref begin
+        ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
+        result = unsafe_read_all!(x, ptr, n)
+    end
+    return result
+end
+
+# See the comment on `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)`
+@inline function unsafe_read_all!(x::AbstractBufReader, ref::Ref{T}, n::Int)::Int where {T}
+    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only read into a Ref{T} if T is a bitstype"))
+    cref = Base.cconvert(Ref{T}, ref)
+    GC.@preserve cref begin
+        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cref)::Ptr)::Ptr{UInt8}
+        result = unsafe_read_all!(x, ptr, n)
+    end
+    return result
+end
+
+function unsafe_read_all!(x::AbstractBufReader, p::Ptr{UInt8}, n::Int)::Int
+    n < 0 && throw(ArgumentError("nbytes cannot be negative"))
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    length(buffer) < n && return unsafe_read_all_slowpath!(x, p, n)
+    GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), n % UInt)
+    @inbounds consume(x, n)
+    return n
+end
+
+@noinline function unsafe_read_all_slowpath!(x::AbstractBufReader, p::Ptr{UInt8}, n::Int)::Int
+    remaining = n
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        isnothing(buffer) && break
+        mn = min(length(buffer), remaining)
+        GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), mn % UInt)
+        p += mn
+        remaining -= mn
+        @inbounds consume(x, mn)
+    end
+    return n - remaining
+end
+
+"""
+    discard(io::AbstractBufReader, n::Int)::Int
+
+Read `n` bytes from `io`, or until EOF, whichever comes first, and discard
+the read bytes. Return the number of bytes discarded.
+
+This function is defined generically for `AbstractBufReader` by reading bytes,
+not by seeking, so it works on readers that can't seek.
+Subtypes of `AbstractBufReader` may implement this using seeking.
+
+Throw an `ArgumentError` if `n < 0`.
+
+See also: [`discard_exact`](@ref)
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdefghij");
+
+julia> discard(reader, 5)
+5
+
+julia> read(reader, 3) |> String
+"fgh"
+
+julia> discard(reader, 10) # 2 bytes remaining
+2
+
+julia> eof(reader)
+true
+
+julia> discard(reader, 100)
+0
+```
+"""
+function discard(io::AbstractBufReader, n::Int)
+    n < 0 && throw(ArgumentError("Cannot discard a negative number of bytes"))
+    remaining = n
+    while !iszero(remaining)
+        buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
+        isnothing(buffer) && break
+        mn = min(length(buffer), remaining)
+        @inbounds consume(io, mn)
+        remaining -= mn
+    end
+    return n - remaining
+end
+
+"""
+    discard_exact(io::AbstractBufReader, n::Int)::Nothing
+
+Like [`discard`](@ref), but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes
+could not be discarded.
 
 # Examples
 ```jldoctest
@@ -498,32 +600,23 @@ julia> reader = CursorReader("abcdefghij");
 julia> position(reader)
 0
 
-julia> skip_exact(reader, 3)
+julia> discard_exact(reader, 3)
 
 julia> read(reader, 2) |> String
 "de"
 
-julia> skip_exact(reader, 6) # 5 bytes remaining
+julia> discard_exact(reader, 6) # 5 bytes remaining
 ERROR: End of file
 ```
 """
-function skip_exact(io::AbstractBufReader, n::Integer)
-    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
-    skipped = skip(io, n)
-    skipped == n || throw(IOError(IOErrorKinds.EOF))
+function discard_exact(io::AbstractBufReader, n::Int)
+    # `discard` throws the `ArgumentError` for negative `n`
+    discarded = discard(io, n)
+    discarded == n || throw(IOError(IOErrorKinds.EOF))
     return nothing
 end
 
 #########################
-
-# Types where write(io, x) is the same as copying x
-const PLAIN_TYPES = (
-    Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int128, UInt128,
-    Bool,
-    Float16, Float32, Float64,
-)
-
-const PlainTypes = Union{PLAIN_TYPES...}
 
 """
     get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemoryView{UInt8}}
@@ -557,16 +650,79 @@ function get_nonempty_buffer(x::AbstractBufWriter)::Union{Nothing, MutableMemory
     return isempty(buffer) ? nothing : buffer
 end
 
+"""
+    get_nonempty_buffer(
+        io::AbstractBufWriter, min_size::Int
+    )::Union{Nothing, MutableMemoryView{UInt8}}
+
+Get a buffer of at least `max(min_size, 1)` bytes, or `nothing` if `io` cannot
+provide a buffer of that size.
+The desired buffer length is obtained by repeatedly calling [`grow_buffer`](@ref).
+
+Writers whose buffer can grow without bound, such as [`VecWriter`](@ref) and
+[`BufWriter`](@ref), never return `nothing`.
+
+!!! warning
+    Use of this method may cause excessive buffering without flushing,
+    which is less memory efficient than calling the one-argument method
+    and flushing in a loop.
+
+# Extended help
+Subtypes of `AbstractBufWriter` may implement this method if they can provide a large
+buffer more efficiently than the generic fallback.
+The returned buffer must contain at least `max(min_size, 1)` bytes.
+
+# Examples
+```jldoctest
+julia> using BufferIO.Testing: BoundedWriter
+
+julia> writer = BoundedWriter(UInt8[], 4);
+
+julia> length(get_nonempty_buffer(writer, 3)) ≥ 3
+true
+
+julia> get_nonempty_buffer(writer, 5) === nothing # buffer can hold at most 4 bytes
+true
+
+julia> length(get_nonempty_buffer(VecWriter(), 100)) ≥ 100 # VecWriter can always grow
+true
+```
+"""
+function get_nonempty_buffer(x::AbstractBufWriter, min_size::Int)::Union{Nothing, MutableMemoryView{UInt8}}
+    buffer = get_buffer(x)::MutableMemoryView{UInt8}
+    length(buffer) ≥ max(min_size, 1) && return buffer
+    return get_nonempty_buffer_slowpath(x, max(min_size, 1), length(buffer))
+end
+
+@noinline function get_nonempty_buffer_slowpath(
+        x::AbstractBufWriter,
+        min_size::Int,
+        current_size::Int,
+    )::Union{Nothing, MutableMemoryView{UInt8}}
+    while true
+        grown = grow_buffer(x)::Int
+        iszero(grown) && return nothing
+        buffer = get_buffer(x)::MutableMemoryView{UInt8}
+        if length(buffer) != current_size + grown
+            error("Invalid implementation of grow_buffer")
+        end
+        length(buffer) ≥ min_size && return buffer
+        current_size = length(buffer)
+    end
+    return
+end
+
 ##########################
 
 """
-	write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)::Int
+	write_repeated(io::AbstractBufWriter, byte::UInt8, n::Int)::Int
 
-Write `byte` to `io` `n` times, or until `io` is full, and return the number
-of written bytes.
+Write `byte` to `io` `n` times, and return `n`.
 This is equivalent to `write(io, fill(byte, n))`, but more efficient.
 
 Throw an `InexactError` if `n` is negative.
+If `io` cannot make room for all `n` bytes, throw an `IOError` of kind
+`IOErrorKinds.WriterFull`. In that case, some bytes may already have been written.
 
 # Examples
 ```jldoctest
@@ -579,11 +735,11 @@ julia> takestring!(w)
 "abcxxxxxx"
 ```
 """
-function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Integer)
+function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Int)
     remaining = UInt(n)::UInt
     original = remaining
     while !iszero(remaining)
-        buffer = @something get_nonempty_buffer(io) return (original - remaining) % Int
+        buffer = @something get_nonempty_buffer(io) throw(IOError(IOErrorKinds.WriterFull))
         buffer = @inbounds buffer[1:min(length(buffer) % UInt, remaining)]
         fill!(buffer, byte)
         @inbounds consume(io, length(buffer))

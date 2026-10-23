@@ -14,7 +14,7 @@ julia> io = IOBuffer(); wtr = BufWriter(io);
 
 julia> print(wtr, "Hello!")
 
-julia> write(wtr, [0x1234, 0x5678])
+julia> write(wtr, [0x34, 0x12, 0x78, 0x56])
 4
 
 julia> isempty(read(io)) # wtr not flushed
@@ -33,11 +33,18 @@ it must implement:
 * `close(io)`
 * `flush(io)`
 * `unsafe_write(io, ::Ptr{UInt8}, ::UInt)`
-Optional functionaly such as seeking may require additional methods, including,
-but not limited to `seek`, `filesize` and `position`.
+
+Seeking, and `filesize` and `position` of the `BufWriter`, additionally require `io`
+to implement `seek`, `filesize` and `position`, where:
+* Writing overwrites existing data, and seeking does not truncate `io`.
+* `filesize(io)` includes any data written to `io` beyond `position(io)`.
+  For example, `IOStream` meets this, because it writes out its own buffer when seeking.
+
+Seeking is not supported if `io` is in append mode (e.g. a file opened with
+`append = true`), because then `io` ignores its position when writing.
 """
 mutable struct BufWriter{T <: IO} <: AbstractBufWriter
-    io::T
+    const io::T
     # Always points to index 1 of the buffer. Storing a `MemoryRef` and the capacity,
     # instead of the `Memory`, saves a dependent load in `get_buffer`, since the
     # data pointer is stored inline in the ref.
@@ -377,9 +384,13 @@ function Base.close(x::BufWriter)
     # IO throws. This keeps the content of the memory.
     n_buffered = x.consumed
     mark_closed!(x)
-    iszero(n_buffered) || write_buffered(x, n_buffered)
-    # Per the docstring of `close(::IO)`, this flushes the underlying IO
-    close(x.io)
+    try
+        iszero(n_buffered) || write_buffered(x, n_buffered)
+    finally
+        # Per the docstring of `close(::IO)`, this flushes the underlying IO.
+        # Close it even if writing failed, since `x` can't be closed again.
+        close(x.io)
+    end
     return nothing
 end
 
@@ -437,20 +448,20 @@ function consume(x::BufWriter, n::Int)
 end
 
 """
-    seek(io::AbstractBufWriter, offset::Int) -> io
+    seek(io::AbstractBufWriter, offset::Integer) -> io
 
-Flush `io`, then seek `io` to the zero-based position `offset`.
+Seek `io` to the zero-based position `offset`, and return `io`.
+Subsequent writes write (or overwrite) data starting at `offset`.
 
 Valid values for `offset` are in `0:filesize(io)`, if `filesize(io)` is defined.
-The filesize  is computed *after* the flush.
-Seeking outside these bounds throws an `IOError` of kind `BadSeek`.
-Seeking should only change the filesize through its flush, so seeking an already-flushed
-stream should not change the filesize.
+Seeking outside these bounds throws an `IOError` of kind `BadSeek`, and leaves `io`
+unchanged.
 
-If seeking to before the current position (as defined by `position`), data between
-the new and the previous position should not be changed, and the underlying file or IO
-should not immediately be truncated. However, new write operations should write (or
-overwrite) data at the new position.
+Seeking never changes the filesize, nor any data already written to `io`, including data
+not yet flushed. In particular, seeking never truncates the underlying file or IO.
+
+Seeking may write buffered data to the underlying IO, but need not flush it.
+Use `flush` for that.
 
 This method is not generically defined for `AbstractBufWriter`. Implementors of `seek`
 should also define `filesize(io)` and `position(io)`
@@ -478,9 +489,10 @@ julia> String(take!(buf))
 ```
 """
 function Base.seek(io::BufWriter, offset::Int)
-    flush(io)
-    fz = filesize(io.io)
-    in(offset, 0:fz) || throw(IOError(IOErrorKinds.BadSeek))
+    # Check before writing out the buffer, so an invalid seek leaves `io` unchanged.
+    # This also throws if `io` is closed.
+    in(offset, 0:filesize(io)) || throw(IOError(IOErrorKinds.BadSeek))
+    shallow_flush(io)
     seek(io.io, offset)
     return io
 end
@@ -488,13 +500,14 @@ end
 """
     filesize(io::AbstractBufWriter)::Int
 
-Get the filesize of `io`, in bytes.
+Get the size, in bytes, of the data written to `io`, including data which has been
+committed with `consume`, but not yet flushed.
+This is the size the underlying file or IO will have once `io` is flushed, provided
+nothing else modifies it.
 
-The filesize is understood as the number of bytes flushed to the underlying resource
-of `io`, and which can be retrived by re-reading the data (so e.g. some streams like
-`devnull` may have a filesize of zero, even if many bytes was flushed to it.)
-The filesize does not depend on, and does not include, the number of buffered and
-unflushed bytes.
+`0:filesize(io)` is the range of valid offsets for `seek`, and `position(io)` is always
+in this range. Writing beyond the end of the data increases the filesize.
+Other operations, including seeking and flushing, do not change it.
 
 Types implementing `filesize` should also implement `seek` and `position`.
 
@@ -504,19 +517,24 @@ julia> io = BufWriter(IOBuffer());
 
 julia> write(io, "abc");
 
-julia> filesize(io)
-0
-
-julia> flush(io); filesize(io)
+julia> filesize(io) # includes unflushed data
 3
 
 julia> seek(io, 1); filesize(io)
 3
+
+julia> write(io, "xyz"); filesize(io)
+4
 ```
 """
 function Base.filesize(io::BufWriter)
     io.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
-    return filesize(io.io)
+    # Writes overwrite, but never truncate, so the data written to `io` ends at the
+    # end of the wrapped IO, or at the end of the buffered data, whichever is later.
+    # This relies on the wrapped IO following the requirements in the docstring of
+    # `BufWriter`.
+    buffered_end = Int(position(io.io))::Int + io.consumed
+    return max(Int(filesize(io.io))::Int, buffered_end)
 end
 
 """
@@ -526,8 +544,8 @@ Get the zero-based stream position.
 
 If the stream position is `p` (zero-based), then the next byte written will be byte number
 `p + 1` (one-based) in the file.
-The stream position *does* account for buffered (consumed, but unflushed) bytes, and therefore may exceed `filesize`.
-After calling `flush`, `position` must be in `0:filesize(io)`, if `filesize` is defined.
+The stream position accounts for buffered (consumed, but unflushed) bytes.
+The value of `position` is always in `0:filesize(io)`, if `filesize` is defined.
 
 # Examples
 ```jldoctest
@@ -536,9 +554,9 @@ julia> io = BufWriter(IOBuffer());
 julia> write(io, "hello");
 
 julia> (filesize(io), position(io))
-(0, 5)
+(5, 5)
 
-julia> seek(io, 2); # NB: seek flushes
+julia> seek(io, 2);
 
 julia> (filesize(io), position(io))
 (5, 2)
@@ -546,7 +564,7 @@ julia> (filesize(io), position(io))
 """
 function Base.position(io::BufWriter)
     io.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
-    return position(io.io) + io.consumed
+    return Int(position(io.io))::Int + io.consumed
 end
 
 # This specialized method is used whenever `n_bytes` is longer than the remaining room in `io`.

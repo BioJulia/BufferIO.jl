@@ -128,6 +128,13 @@ end
     # Test invalid seeks
     @test_throws IOError seek(reader, -1)
     @test_throws IOError seek(reader, 11)  # Beyond end
+
+    # Non-`Int` integers are accepted, including through an `IOReader`
+    @test seek(reader, Int32(3)) === reader
+    @test String(read(reader, 2)) == "34"
+    io_reader = IOReader(reader)
+    @test seek(io_reader, UInt8(7)) === io_reader
+    @test String(read(io_reader)) == "789"
 end
 
 function test_bad_relative_seek(io, delta)
@@ -259,7 +266,7 @@ end
             read,
             r -> read(r, 3),
             readline,
-            r -> skip(r, 2),
+            r -> discard(r, 2),
             r -> seek(r, 0),
             r -> seek(r, 6),
             r -> relative_seek(r, 1),

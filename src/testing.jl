@@ -114,10 +114,13 @@ function BufferIO.consume(x::BoundedReader, n::Int)
 end
 
 function Base.close(x::BoundedReader)
+    x.closed && return nothing
     x.closed = true
     relocate!(x, length(x.buffer), 0)
     return nothing
 end
+
+Base.isopen(x::BoundedReader) = !x.closed
 
 # Move the buffer to new memory, removing its first `n_consume` bytes, and moving
 # `n_fill` bytes from `inner` to its end. Then flip all bits of the old memory, such that
@@ -211,5 +214,7 @@ function Base.close(x::BoundedWriter)
     x.n_buffered = length(x.buffer)
     return nothing
 end
+
+Base.isopen(x::BoundedWriter) = !x.closed
 
 end # module Testing

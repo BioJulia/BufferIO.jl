@@ -111,26 +111,67 @@ end
     @test eof(empty_io)
 end
 
-@testset "unsafe_read(::T, ref, nbytes::UInt)" begin
+@testset "unsafe_read_all!" begin
     io = GenericBufReader("hello")
 
     # Test with array
     arr = Vector{UInt8}(undef, 3)
-    n_read = unsafe_read(io, arr, UInt(3))
+    n_read = unsafe_read_all!(io, arr, 3)
     @test n_read == 3
     @test arr == b"hel"
 
     # Test reading more than available
     arr2 = Vector{UInt8}(undef, 10)
-    n_read2 = unsafe_read(io, arr2, UInt(10))
+    n_read2 = unsafe_read_all!(io, arr2, 10)
     @test n_read2 == 2  # Only "lo" remaining
     @test arr2[1:2] == b"lo"
 
     # Test with empty reader
     empty_io = GenericBufReader("")
     arr3 = Vector{UInt8}(undef, 5)
-    n_read3 = unsafe_read(empty_io, arr3, UInt(5))
+    n_read3 = unsafe_read_all!(empty_io, arr3, 5)
     @test n_read3 == 0
+
+    # Negative `nbytes` throws, without reading
+    io4 = GenericBufReader("abcdef")
+    arr4 = Vector{UInt8}(undef, 4)
+    @test_throws ArgumentError unsafe_read_all!(io4, arr4, -1)
+    @test unsafe_read_all!(io4, arr4, 4) == 4
+    @test arr4 == b"abcd"
+
+    # Reading into a `Ref` of any type
+    data = collect(UInt8, 1:16)
+    expected = only(reinterpret(UInt64, data[1:8]))
+    ref = Ref{UInt64}(0)
+    @test unsafe_read_all!(GenericBufReader(data), ref, 8) == 8
+    @test ref[] == expected
+
+    # The reader's buffer is too short to hold the value, so it is read in chunks
+    ref = Ref{UInt64}(0)
+    @test unsafe_read_all!(BoundedReader(data, 3), ref, 8) == 8
+    @test ref[] == expected
+
+    ref = Ref{NTuple{3, UInt8}}((0x00, 0x00, 0x00))
+    @test unsafe_read_all!(GenericBufReader(b"abcd"), ref, 3) == 3
+    @test ref[] == (0x61, 0x62, 0x63)
+
+    # Stop at EOF
+    ref = Ref{UInt32}(0)
+    @test unsafe_read_all!(BoundedReader(b"ab", 1), ref, 4) == 2
+
+    # Reading into a Ref of a non-bitstype would overwrite e.g. a vector's pointer
+    @test_throws ArgumentError unsafe_read_all!(GenericBufReader(data), Ref(UInt8[]), 8)
+    @test_throws ArgumentError unsafe_read_all!(GenericBufReader(data), Ref("abc"), 3)
+
+    # A `Ptr{T}` is a `Ref{T}`, but may point to more than `sizeof(T)` bytes
+    floats = [0.0, 0.0]
+    src = collect(reinterpret(UInt8, [1.0, 2.0]))
+    @test GC.@preserve(floats, unsafe_read_all!(GenericBufReader(src), pointer(floats), 16)) == 16
+    @test floats == [1.0, 2.0]
+
+    # `Base.unsafe_read` is documented to copy `nbytes` bytes, whereas `unsafe_read_all!`
+    # stops at EOF, so it is not overloaded
+    @test !hasmethod(unsafe_read, Tuple{CursorReader, Ptr{UInt8}, UInt})
 end
 
 @testset "readavailable" begin
@@ -492,6 +533,16 @@ end
         io = IOBuffer()
         @test_throws IOError copyline(io, rdr; keep = false)
 
+        # Stream ends at \r, which is alone in the buffer when it's filled.
+        # `BoundedReader` invalidates the old buffer on `fill_buffer`, so this
+        # checks that copyline does not write from the stale buffer.
+        for keep in (false, true)
+            rdr = BoundedReader("ab\r", 2)
+            io = IOBuffer()
+            copyline(io, rdr; keep)
+            @test take!(io) == b"ab\r"
+        end
+
         # Length == 1, but buffer can grow
         rdr = BufReader(IOBuffer("abc\r\n"), 1)
         io = IOBuffer()
@@ -501,155 +552,179 @@ end
     end
 end
 
-@testset "skip" begin
-    # Test basic skipping
+@testset "discard" begin
+    # Test basic discarding
     reader = CursorReader("hello world")
-    n_skipped = skip(reader, 5)
-    @test n_skipped == 5
+    n_discarded = discard(reader, 5)
+    @test n_discarded == 5
     @test position(reader) == 5
     @test String(read(reader)) == " world"
 
-    # Test skipping more than available
+    # Test discarding more than available
     reader2 = CursorReader("abc")
-    n_skipped2 = skip(reader2, 10)
-    @test n_skipped2 == 3  # Only 3 bytes available
+    n_discarded2 = discard(reader2, 10)
+    @test n_discarded2 == 3  # Only 3 bytes available
     @test eof(reader2)
     @test read(reader2) == UInt8[]
 
-    # Test skipping zero bytes
+    # Test discarding zero bytes
     reader3 = CursorReader("test")
-    n_skipped3 = skip(reader3, 0)
-    @test n_skipped3 == 0
+    n_discarded3 = discard(reader3, 0)
+    @test n_discarded3 == 0
     @test position(reader3) == 0
     @test String(read(reader3)) == "test"
 
-    # Test skipping from middle of reader
+    # Test discarding from middle of reader
     reader4 = CursorReader("abcdefgh")
     read(reader4, 3)  # Read "abc", now at position 3
-    n_skipped4 = skip(reader4, 2)
-    @test n_skipped4 == 2
+    n_discarded4 = discard(reader4, 2)
+    @test n_discarded4 == 2
     @test position(reader4) == 5
     @test String(read(reader4)) == "fgh"
 
-    # Test skipping all remaining bytes
+    # Test discarding all remaining bytes
     reader5 = CursorReader("123456")
     read(reader5, 2)  # Read "12", now at position 2
-    n_skipped5 = skip(reader5, 4)
-    @test n_skipped5 == 4
+    n_discarded5 = discard(reader5, 4)
+    @test n_discarded5 == 4
     @test eof(reader5)
 
-    # Test skipping from empty reader
+    # Test discarding from empty reader
     reader6 = CursorReader("")
-    n_skipped6 = skip(reader6, 5)
-    @test n_skipped6 == 0
+    n_discarded6 = discard(reader6, 5)
+    @test n_discarded6 == 0
     @test eof(reader6)
 
-    @testset "Base.skip error conditions" begin
-        # Test negative skip amount with CursorReader
+    @testset "discard error conditions" begin
+        # Test negative discard amount with CursorReader
         reader = CursorReader("test")
-        @test_throws ArgumentError skip(reader, -1)
-        @test_throws ArgumentError skip(reader, -10)
+        @test_throws ArgumentError discard(reader, -1)
+        @test_throws ArgumentError discard(reader, -10)
 
-        # Test negative skip amount with BufReader
+        # Test negative discard amount with BufReader
         io = IOBuffer("test")
         reader2 = BufReader(io)
-        @test_throws ArgumentError skip(reader2, -1)
-        @test_throws ArgumentError skip(reader2, -10)
+        @test_throws ArgumentError discard(reader2, -1)
+        @test_throws ArgumentError discard(reader2, -10)
 
         # Verify error messages contain expected text
         try
-            skip(CursorReader("test"), -5)
+            discard(CursorReader("test"), -5)
             error()
         catch e
             @test e isa ArgumentError
         end
     end
 
-    @testset "skip edge cases" begin
-        # Test skip with exactly buffer-sized chunks
+    @testset "discard edge cases" begin
+        # Test discard with exactly buffer-sized chunks
         io = IOBuffer("12345678")  # 8 bytes
         reader = BufReader(io, 4)   # Buffer size 4
-        n1 = skip(reader, 4)        # Skip exactly buffer size
+        n1 = discard(reader, 4)        # Discard exactly buffer size
         @test n1 == 4
         @test String(read(reader)) == "5678"
 
-        # Test large skip amounts
+        # Test large discard amounts
         data = "x"^1000  # 1000 bytes
         reader3 = CursorReader(data)
-        n2 = skip(reader3, 500)
+        n2 = discard(reader3, 500)
         @test n2 == 500
         @test position(reader3) == 500
     end
+
+    # `Base.skip` is documented to seek, which `discard` does not, so it is not overloaded
+    @test !hasmethod(skip, Tuple{CursorReader, Int})
 end
 
-@testset "skip_exact" begin
-    # Test skipping exact amount available
+@testset "discard_exact" begin
+    # Test discarding exact amount available
     io = IOBuffer("hello world")
     reader = BufReader(io)
-    skip_exact(reader, 5)
+    discard_exact(reader, 5)
     @test String(read(reader)) == " world"
 
-    # Test skipping zero bytes
+    # Test discarding zero bytes
     io2 = IOBuffer("test")
     reader2 = BufReader(io2)
-    skip_exact(reader2, 0)
+    discard_exact(reader2, 0)
     @test String(read(reader2)) == "test"
 
-    # Test skipping across buffer boundaries
+    # Test discarding across buffer boundaries
     io3 = IOBuffer("abcdefghijklmnop")
     reader3 = BufReader(io3, 4)  # Small buffer to force multiple reads
-    skip_exact(reader3, 8)
+    discard_exact(reader3, 8)
     @test String(read(reader3)) == "ijklmnop"
 
-    # Test skipping all bytes
+    # Test discarding all bytes
     io4 = IOBuffer("123")
     reader4 = BufReader(io4)
-    skip_exact(reader4, 3)
+    discard_exact(reader4, 3)
     @test eof(reader4)
 
-    # Test skipping with very small buffer
+    # Test discarding with very small buffer
     io5 = IOBuffer("abcdefghijk")
     reader5 = BufReader(io5, 1)
-    skip_exact(reader5, 7)
+    discard_exact(reader5, 7)
     @test String(read(reader5)) == "hijk"
 
-    # Test skipping from partially read buffer
+    # Test discarding from partially read buffer
     io6 = IOBuffer("0123456789")
     reader6 = BufReader(io6, 5)
     read(reader6, 3)  # Read first 3 bytes
-    skip_exact(reader6, 4)  # Skip next 4
+    discard_exact(reader6, 4)  # Discard next 4
     @test String(read(reader6)) == "789"
 
-    @testset "skip_exact error conditions" begin
-        # Test skipping more than available with CursorReader
+    @testset "discard_exact error conditions" begin
+        # Test discarding more than available with CursorReader
         reader = CursorReader("abc")
-        @test_throws IOError skip_exact(reader, 5)
+        @test_throws IOError discard_exact(reader, 5)
 
         # Verify it's EOF error
         try
-            skip_exact(CursorReader("ab"), 3)
+            discard_exact(CursorReader("ab"), 3)
             @test false  # Should not reach here
         catch e
             @test e isa IOError
             @test e.kind == IOErrorKinds.EOF
         end
 
-        # Test skipping more than available with BufReader
+        # Test discarding more than available with BufReader
         io = IOBuffer("xyz")
         reader2 = BufReader(io)
-        @test_throws IOError skip_exact(reader2, 10)
+        @test_throws IOError discard_exact(reader2, 10)
 
-        # Test negative skip amount
+        # Test negative discard amount
         reader3 = CursorReader("test")
-        @test_throws ArgumentError skip_exact(reader3, -1)
+        @test_throws ArgumentError discard_exact(reader3, -1)
 
         io3 = IOBuffer("")
         reader6 = BufReader(io3)
-        @test_throws IOError skip_exact(reader6, 1)
+        @test_throws IOError discard_exact(reader6, 1)
 
-        # Test partial skip followed by skip_exact failure
+        # Test partial discard followed by discard_exact failure
         reader7 = CursorReader("hello")
-        skip(reader7, 3)  # Skip "hel"
-        @test_throws IOError skip_exact(reader7, 5)  # Try to skip 5 more, only 2 available
+        discard(reader7, 3)  # Discard "hel"
+        @test_throws IOError discard_exact(reader7, 5)  # Try to discard 5 more, only 2 available
+    end
+end
+
+@testset "close and isopen" begin
+    # Each reader, and whether closing makes it unusable
+    readers = [
+        (() -> BufReader(IOBuffer("abc")), true),
+        (() -> ExpandReader(BufReader(IOBuffer("abc"))), true),
+        (() -> BoundedReader("abc", 2), true),
+        (() -> CursorReader("abc"), false),
+        (() -> GenericBufReader("abc"), false),
+        (() -> BlockReader("abc", 2), false),
+    ]
+    for (make, closing_disables) in readers
+        reader = make()
+        @test isopen(reader)
+        @test close(reader) === nothing
+        @test isopen(reader) == !closing_disables
+        # Closing is idempotent
+        @test close(reader) === nothing
+        @test isopen(reader) == !closing_disables
     end
 end

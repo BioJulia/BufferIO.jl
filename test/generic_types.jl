@@ -11,6 +11,7 @@ BufferIO.grow_buffer(x::GenericBufWriter) = grow_buffer(x.x)
 
 Base.flush(x::GenericBufWriter) = flush(x.x)
 Base.close(x::GenericBufWriter) = close(x.x)
+Base.isopen(x::GenericBufWriter) = isopen(x.x)
 
 struct GenericBufReader <: AbstractBufReader
     x::CursorReader
@@ -21,6 +22,9 @@ end
 BufferIO.get_buffer(x::GenericBufReader) = get_buffer(x.x)
 BufferIO.consume(x::GenericBufReader, n::Int) = consume(x.x, n)
 BufferIO.fill_buffer(x::GenericBufReader) = fill_buffer(x.x)
+
+Base.close(x::GenericBufReader) = close(x.x)
+Base.isopen(x::GenericBufReader) = isopen(x.x)
 
 # Reader which serves data in fixed-size blocks, and can only fill its buffer when it is
 # empty, like e.g. a block decompressor. Its buffer can never be expanded.
@@ -52,7 +56,10 @@ function BufferIO.consume(x::BlockReader, n::Int)
     return nothing
 end
 
+# `closed` only records that `close` was called, for use in tests.
+# Closing does not make the reader unusable, so it is always open.
 Base.close(x::BlockReader) = (x.closed = true; nothing)
+Base.isopen(::BlockReader) = true
 Base.position(x::BlockReader) = x.pos
 Base.filesize(x::BlockReader) = length(x.data)
 
@@ -79,3 +86,27 @@ BufferIO.consume(x::ScriptedReader, n::Int) = consume(x.x, n)
 function BufferIO.fill_buffer(x::ScriptedReader)
     return isempty(x.script) ? fill_buffer(x.x) : popfirst!(x.script)
 end
+
+Base.close(x::ScriptedReader) = close(x.x)
+Base.isopen(x::ScriptedReader) = isopen(x.x)
+
+# Writer with a fixed capacity, which can never make room for more data.
+mutable struct FixedWriter <: AbstractBufWriter
+    const mem::Memory{UInt8}
+    n_written::Int
+end
+
+FixedWriter(capacity::Int) = FixedWriter(Memory{UInt8}(undef, capacity), 0)
+
+BufferIO.get_buffer(x::FixedWriter) = MemoryView(x.mem)[(x.n_written + 1):end]
+BufferIO.grow_buffer(::FixedWriter) = 0
+
+function BufferIO.consume(x::FixedWriter, n::Int)
+    in(n, 0:(length(x.mem) - x.n_written)) || throw(IOError(IOErrorKinds.ConsumeBufferError))
+    x.n_written += n
+    return nothing
+end
+
+Base.flush(::FixedWriter) = nothing
+Base.close(::FixedWriter) = nothing
+Base.isopen(::FixedWriter) = true

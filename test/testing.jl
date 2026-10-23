@@ -44,7 +44,7 @@
     @test readline(rdr) == "abc"
     @test read(rdr, String) == "def\r\nghi"
     # Line longer than max buffer size
-    @test_throws ArgumentError iterate(line_views(BoundedReader("abcdef\n", 4)))
+    @test_throws IOError iterate(line_views(BoundedReader("abcdef\n", 4)))
 
     # Views of the buffer are overwritten when they are invalidated
     data = collect(b"abcdef")
