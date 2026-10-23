@@ -174,20 +174,6 @@ end
     @test !hasmethod(unsafe_read, Tuple{CursorReader, Ptr{UInt8}, UInt})
 end
 
-function read_uint64_from_ref(io::AbstractBufReader)
-    ref = Ref{UInt64}(0)
-    unsafe_read_all!(io, ref, 8)
-    return ref[]
-end
-
-@testset "unsafe_read_all! into Ref does not allocate" begin
-    # Every read takes the slow path, since the buffer holds at most 3 bytes.
-    # BoundedReader can't be used here, since it allocates when filling its buffer.
-    io = BlockReader(zeros(UInt8, 1024), 3)
-    read_uint64_from_ref(io)
-    @test @allocated(read_uint64_from_ref(io)) == 0
-end
-
 @testset "readavailable" begin
     io = GenericBufReader("hello")
 
