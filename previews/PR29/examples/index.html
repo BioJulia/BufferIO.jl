@@ -46,14 +46,15 @@ const BitInteger = Union{Int, UInt...}
 function write_integer(io::AbstractBufWriter, n::BitInteger)
     buffer = get_buffer(io)
     if length(buffer) ≥ sizeof(n)
-        # Fast path: Store the integer directly into the buffer
-        GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
+        # Fast path: Store the integer directly into the buffer, in little-endian order
+        GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), htol(n))
         @inbounds consume(io, sizeof(n))
     else
-        # Slow path: `unsafe_write` grows the buffer as needed, and writes in chunks
-        # if the buffer can&#39;t hold the whole integer.
-        # The `Ref` does not allocate, because only a pointer to it is passed on.
-        unsafe_write(io, Ref(n), sizeof(n) % UInt)
+        # Slow path: Write one byte at a time, least significant byte first.
+        # `write` grows the buffer as needed.
+        for i in 0:(sizeof(n) - 1)
+            write(io, (n &gt;&gt;&gt; (8 * i)) % UInt8)
+        end
     end
     return sizeof(n)
 end</code></pre><p>This works for any writer, even one whose buffer can never hold <code>sizeof(n)</code> bytes.</p><p>Some data must be written to contiguous memory, for example because it is produced by a function that writes to a pointer. Use the two-arg method of <code>get_nonempty_buffer</code> to get a buffer of a minimum size. It returns <code>nothing</code> if <code>io</code> can&#39;t provide one, in which case the data can be written to a <code>VecWriter</code> first, then copied to <code>io</code>. Writers with an unbounded buffer, like <code>BufWriter</code> and <code>VecWriter</code>, never return <code>nothing</code>.</p><pre><code class="language-julia hljs"># Suppose `encode!(ptr, x)` writes `x` to `ptr` and returns the number of bytes written,
@@ -69,4 +70,4 @@ function write_encoded(io::AbstractBufWriter, x)
     n = GC.@preserve buffer encode!(pointer(buffer), x)
     consume(io, n)
     return n
-end</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../reference/">« API reference</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Friday 23 October 2026 19:52">Friday 23 October 2026</span>. Using Julia version 1.13.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../reference/">« API reference</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Wednesday 28 October 2026 20:28">Wednesday 28 October 2026</span>. Using Julia version 1.13.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
