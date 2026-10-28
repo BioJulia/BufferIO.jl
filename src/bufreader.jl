@@ -235,6 +235,44 @@ end
     return n_read
 end
 
+# Called by the generic `get_nonempty_buffer(::AbstractBufReader, ::Int)`
+@noinline function get_nonempty_buffer_slowpath(
+        x::BufReader,
+        min_size::Int,
+        n_buffered::Int,
+    )::Union{Nothing, ImmutableMemoryView{UInt8}}
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    mem = get_memory(x)
+    # Make room for `min_size` bytes from `start`, with at most one reallocation or move,
+    # instead of growing the buffer incrementally like repeated calls to `fill_buffer`.
+    if length(mem) - x.start + 1 < min_size
+        # Like in `fill_buffer`, only move the buffered bytes if that frees at least as
+        # many bytes as it moves, to keep this amortized O(n_bytes_read).
+        # Else, if the user repeatedly consumed few bytes and requested `min_size` bytes,
+        # each call would move almost `min_size` bytes to make room for a few new bytes.
+        if length(mem) ≥ min_size && x.start - 1 ≥ n_buffered
+            iszero(n_buffered) || copyto!(mem, 1, mem, x.start, n_buffered)
+        else
+            # We don't check EOF before allocating, since for `IOStream`, that would fill
+            # the stream's internal buffer, copying the bytes twice. See `read_some!`.
+            # Note: min_size is positive, so this cast is safe
+            new_size = overallocation_size(max(min_size, length(mem)) % UInt)
+            new_mem = Memory{UInt8}(undef, new_size)
+            iszero(n_buffered) || copyto!(new_mem, 1, mem, x.start, n_buffered)
+            x.ref = memoryref(new_mem)
+            mem = new_mem
+        end
+        x.start = 1
+        x.stop = n_buffered
+    end
+    while x.stop - x.start + 1 < min_size
+        n_added = read_some!(x.io, MemoryView(mem)[(x.stop + 1):length(mem)])
+        iszero(n_added) && return nothing
+        x.stop += n_added
+    end
+    return get_buffer(x)
+end
+
 function consume(x::BufReader, n::Int)
     existing_bytes = x.stop - x.start + 1
     @boundscheck if (existing_bytes % UInt) < (n % UInt)

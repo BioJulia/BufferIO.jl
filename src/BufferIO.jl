@@ -180,6 +180,7 @@ for details of the implementation:
 * `resize_buffer(io::T, ::Int)`
 * `BufferIO.is_expandable(::Type{T})`
 * `unsafe_read_all!(io::T, ::Ptr{UInt8}, ::Int)`
+* `get_nonempty_buffer(io::T, ::Int)`
 
 `AbstractBufReader`s have implementations for many Base IO methods, but with more precisely
 specified semantics than for `Base.IO`.
@@ -678,6 +679,81 @@ end
         buffer = get_buffer(x)::MutableMemoryView{UInt8}
         if length(buffer) != current_size + grown
             error("Invalid implementation of grow_buffer")
+        end
+        length(buffer) ≥ min_size && return buffer
+        current_size = length(buffer)
+    end
+    return
+end
+
+"""
+    get_nonempty_buffer(
+        io::AbstractBufReader, min_size::Int
+    )::Union{Nothing, ImmutableMemoryView{UInt8}}
+
+Get a buffer of at least `max(min_size, 1)` bytes, or `nothing` if `io` reaches EOF
+before buffering that amount of bytes.
+Throw an `IOError` of kind `BufferTooShort` if `io` cannot expand its buffer to
+`max(min_size, 1)` bytes. Since `io` can't detect EOF without room in its buffer,
+this may be thrown even if fewer than `min_size` bytes remain in `io`.
+
+The desired buffer length is obtained by repeatedly calling [`fill_buffer`](@ref).
+
+Readers whose buffer can grow to contain the whole content of `io`, such as [`CursorReader`](@ref) and
+[`BufReader`](@ref), never throw `BufferTooShort`.
+To obtain such a reader, consider using [`expandable`](@ref).
+
+!!! warning
+    Since this may grow `io`'s internal buffer beyond `min_size`,
+    users should only call this function if they need all `min_size` bytes
+    to be buffered in `io`. Consider if you can read the data incrementally
+    via the one-argument `get_nonempty_buffer` instead.
+
+# Extended help
+Subtypes of `AbstractBufReader` may implement this method if they can provide a large
+buffer more efficiently than the generic fallback.
+The returned buffer must contain at least `max(min_size, 1)` bytes.
+
+# Examples
+```jldoctest
+julia> using BufferIO.Testing: BoundedReader
+
+julia> reader = BoundedReader(b"abcdefghi", 4);
+
+julia> length(get_nonempty_buffer(reader, 3)) ≥ 3
+true
+
+julia> try
+           get_nonempty_buffer(reader, 5) # buffer can hold at most 4 bytes
+       catch error
+           error.kind == IOErrorKinds.BufferTooShort
+       end
+true
+
+julia> discard_exact(reader, 6);
+
+julia> get_nonempty_buffer(reader, 4) === nothing # EOF after 3 bytes
+true
+```
+"""
+function get_nonempty_buffer(io::AbstractBufReader, min_size::Int)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+    length(buffer) ≥ max(min_size, 1) && return buffer
+    return get_nonempty_buffer_slowpath(io, max(min_size, 1), length(buffer))
+end
+
+@noinline function get_nonempty_buffer_slowpath(
+        io::AbstractBufReader,
+        min_size::Int,
+        current_size::Int,
+    )::Union{Nothing, ImmutableMemoryView{UInt8}}
+    while true
+        grown = fill_buffer(io)::Union{Nothing, Int}
+        isnothing(grown) && throw(IOError(IOErrorKinds.BufferTooShort))
+        iszero(grown) && return nothing
+        buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+        if length(buffer) != current_size + grown
+            error("Invalid implementation of fill_buffer")
         end
         length(buffer) ≥ min_size && return buffer
         current_size = length(buffer)
