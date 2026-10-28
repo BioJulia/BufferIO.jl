@@ -1,7 +1,7 @@
 using BufferIO
 using Test
 using MemoryViews
-using BufferIO.Testing: BoundedReader, BoundedWriter
+using BufferIO.Testing: BoundedReader, BoundedWriter, ChunkedReader
 
 include("generic_types.jl")
 

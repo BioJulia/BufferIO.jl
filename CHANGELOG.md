@@ -5,7 +5,9 @@
   Such more complex serialization will be moved to a different serialization package.
 * Vararg `write(::AbstractBufWriter, x, ::Vararg)` has been removed. Instead, call write
   multiple times.
-* When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line, an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError` was thrown.
+* When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line,
+  an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError`
+  was thrown.
 * `ByteVector` is now an alias of `Vector{UInt8}`, and `VecWriter` wraps a `Vector{UInt8}`.
   `VecWriter(v::Vector{UInt8})` now appends to `v`, whereas previously, it took over the
   memory of `v` and emptied `v`.
@@ -57,6 +59,9 @@
 
 ## New features
 * `IOErrorKinds.IOErrorKind` is now public.
+* Add `BufferIO.Testing.ChunkedReader`, a reader whose `fill_buffer` adds exactly one
+  given chunk of data at a time to its unbounded buffer. It is useful to test that generic
+  code handles data arriving in pieces, with full control over where the pieces split.
 * The two-arg `get_nonempty_buffer(io, min_size)` now works for every `AbstractBufWriter`,
   through a generic fallback which returns `nothing` if `io` can't provide a buffer of
   at least `min_size` bytes. Previously, only `VecWriter` and `BufWriter` implemented it.
