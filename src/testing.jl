@@ -6,15 +6,16 @@ testing code that is generic over buffered readers and writers, similar in spiri
 `Test.GenericString`.
 
 The types in this module implement only the required interface methods, and have
-deliberately restricted buffers. This exercises the code paths that `BufReader` or
-`VecWriter` never hit, such as `fill_buffer` returning `nothing`, and fallback
-definitions of optional methods.
-Furthermore, `BoundedReader` overwrites its old buffer whenever views of its buffer may be
+deliberately restricted buffers, or buffers which are filled in controlled increments.
+This exercises the code paths that `BufReader` or `VecWriter` never hit, such as
+`fill_buffer` returning `nothing`, and fallback definitions of optional methods.
+Furthermore, the readers overwrite their old buffer whenever views of their buffer may be
 invalidated, which helps to catch code that uses such views after they have been invalidated.
 
 These types are not optimized for performance, and should only be used in tests.
 
 See also: [`BoundedReader`](@ref BufferIO.Testing.BoundedReader),
+[`ChunkedReader`](@ref BufferIO.Testing.ChunkedReader),
 [`BoundedWriter`](@ref BufferIO.Testing.BoundedWriter)
 """
 module Testing
@@ -30,7 +31,7 @@ using ..BufferIO: BufferIO,
 
 using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
 
-export BoundedReader, BoundedWriter
+export BoundedReader, BoundedWriter, ChunkedReader
 
 """
     BoundedReader(data, max_buffer_size::Int; max_fill::Int = 1) <: AbstractBufReader
@@ -123,19 +124,120 @@ end
 Base.isopen(x::BoundedReader) = !x.closed
 
 # Move the buffer to new memory, removing its first `n_consume` bytes, and moving
-# `n_fill` bytes from `inner` to its end. Then flip all bits of the old memory, such that
-# any byte seen through an invalidated view differs from the byte that was there.
+# `n_fill` bytes from `inner` to its end.
 function relocate!(x::BoundedReader, n_consume::Int, n_fill::Int)
-    old = x.buffer
-    n_kept = length(old) - n_consume
-    new = Memory{UInt8}(undef, n_kept + n_fill)
-    copyto!(new, 1, old, n_consume + 1, n_kept)
-    copyto!(MemoryView(new)[(n_kept + 1):end], get_buffer(x.inner)[1:n_fill])
+    x.buffer = relocated(x.buffer, n_consume, get_buffer(x.inner)[1:n_fill])
     consume(x.inner, n_fill)
-    map!(~, old, old)
-    x.buffer = new
     return nothing
 end
+
+# Return a copy of `old` with its first `n_consume` bytes removed, and `fill` appended.
+# Then flip all bits of `old`, such that any byte seen through an invalidated view
+# differs from the byte that was there.
+function relocated(old::Memory{UInt8}, n_consume::Int, fill::ImmutableMemoryView{UInt8})
+    n_kept = length(old) - n_consume
+    new = Memory{UInt8}(undef, n_kept + length(fill))
+    copyto!(new, 1, old, n_consume + 1, n_kept)
+    copyto!(MemoryView(new)[(n_kept + 1):end], fill)
+    map!(~, old, old)
+    return new
+end
+
+"""
+    ChunkedReader(chunks) <: AbstractBufReader
+
+Reader of the bytes of `chunks`, where the `n`th call to `fill_buffer` adds exactly the
+bytes of the `n`th chunk to the buffer, and returns `0` once all chunks have been added.
+Each chunk can be any object `x` which implements `ImmutableMemoryView{UInt8}(x)`,
+and must not be empty, since `fill_buffer` returning `0` signals EOF.
+
+The buffer can grow without limit, so `fill_buffer` never returns `nothing`, and
+`BufferIO.is_expandable(ChunkedReader)` is `true`.
+This makes `ChunkedReader` useful to test that generic code correctly handles data
+which arrives in pieces, by controlling exactly where the buffer ends after each
+call to `fill_buffer`, e.g. in the middle of a line, or between a `\\r` and a `\\n`.
+
+Like [`BoundedReader`](@ref BufferIO.Testing.BoundedReader), every call to
+`fill_buffer`, `consume` and `close` moves the buffer to new memory, and overwrites
+the old memory by flipping all bits of every byte, to catch code which uses views of
+the buffer after they have been invalidated.
+The bytes of the chunks themselves are never modified.
+
+`ChunkedReader` only implements the methods required of an `AbstractBufReader`, so
+optional methods such as `seek` and `position` are unsupported or use the generic
+fallback definitions.
+
+# Examples
+```jldoctest
+julia> using BufferIO.Testing: ChunkedReader
+
+julia> reader = ChunkedReader(["abc\\r", "\\nde", "f"]);
+
+julia> fill_buffer(reader), fill_buffer(reader)
+(4, 3)
+
+julia> String(get_buffer(reader))
+"abc\\r\\nde"
+
+julia> consume(reader, 5); fill_buffer(reader), fill_buffer(reader)
+(1, 0)
+
+julia> String(read(reader))
+"def"
+
+julia> BufferIO.is_expandable(ChunkedReader)
+true
+```
+"""
+mutable struct ChunkedReader <: AbstractBufReader
+    const chunks::Vector{ImmutableMemoryView{UInt8}}
+    # Number of chunks which have been added to the buffer
+    n_filled::Int
+    # Replaced by new memory whenever views of the buffer may be invalidated
+    buffer::Memory{UInt8}
+    closed::Bool
+
+    function ChunkedReader(chunks)
+        views = ImmutableMemoryView{UInt8}[ImmutableMemoryView{UInt8}(c) for c in chunks]
+        any(isempty, views) && throw(ArgumentError("chunks must not be empty"))
+        return new(views, 0, Memory{UInt8}(), false)
+    end
+end
+
+BufferIO.is_expandable(::Type{ChunkedReader}) = true
+
+function BufferIO.get_buffer(x::ChunkedReader)::ImmutableMemoryView{UInt8}
+    return ImmutableMemoryView(x.buffer)
+end
+
+function BufferIO.fill_buffer(x::ChunkedReader)::Int
+    x.closed && throw(IOError(IOErrorKinds.ClosedIO))
+    if x.n_filled == length(x.chunks)
+        # Relocate even if nothing is filled, since views are invalidated regardless
+        x.buffer = relocated(x.buffer, 0, ImmutableMemoryView(UInt8[]))
+        return 0
+    end
+    x.n_filled += 1
+    chunk = x.chunks[x.n_filled]
+    x.buffer = relocated(x.buffer, 0, chunk)
+    return length(chunk)
+end
+
+# Since this type is for testing, we always check bounds, even in an `@inbounds` context.
+function BufferIO.consume(x::ChunkedReader, n::Int)
+    in(n, 0:length(x.buffer)) || throw(IOError(IOErrorKinds.ConsumeBufferError))
+    x.buffer = relocated(x.buffer, n, ImmutableMemoryView(UInt8[]))
+    return nothing
+end
+
+function Base.close(x::ChunkedReader)
+    x.closed && return nothing
+    x.closed = true
+    x.buffer = relocated(x.buffer, length(x.buffer), ImmutableMemoryView(UInt8[]))
+    return nothing
+end
+
+Base.isopen(x::ChunkedReader) = !x.closed
 
 """
     BoundedWriter(sink::Vector{UInt8}, max_buffer_size::Int) <: AbstractBufWriter

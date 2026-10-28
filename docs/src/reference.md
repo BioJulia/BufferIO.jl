@@ -26,5 +26,6 @@ Base.position(::CursorReader)
 ```@docs
 BufferIO.Testing
 BufferIO.Testing.BoundedReader
+BufferIO.Testing.ChunkedReader
 BufferIO.Testing.BoundedWriter
 ```
