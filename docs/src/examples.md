@@ -81,14 +81,15 @@ const BitInteger = Union{Int, UInt...}
 function write_integer(io::AbstractBufWriter, n::BitInteger)
     buffer = get_buffer(io)
     if length(buffer) ≥ sizeof(n)
-        # Fast path: Store the integer directly into the buffer
-        GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), n)
+        # Fast path: Store the integer directly into the buffer, in little-endian order
+        GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), htol(n))
         @inbounds consume(io, sizeof(n))
     else
-        # Slow path: `unsafe_write` grows the buffer as needed, and writes in chunks
-        # if the buffer can't hold the whole integer.
-        # The `Ref` does not allocate, because only a pointer to it is passed on.
-        unsafe_write(io, Ref(n), sizeof(n) % UInt)
+        # Slow path: Write one byte at a time, least significant byte first.
+        # `write` grows the buffer as needed.
+        for i in 0:(sizeof(n) - 1)
+            write(io, (n >>> (8 * i)) % UInt8)
+        end
     end
     return sizeof(n)
 end

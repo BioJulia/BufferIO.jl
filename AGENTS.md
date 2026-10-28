@@ -16,7 +16,9 @@ Unlike most idiomatic Julia code, this code base perfers concrete types, e.g. a 
 BufferIO types are not subtypes of `IO`, and need not be compatible with code written for `IO`. Base methods for `IO` may be implemented for BufferIO types, but their implementation should not violate the documented `IO` behaviour of those functions to avoid accidental misuse.
 If BufferIO's method semantics would violate the documented Base IO function semantics, make it a method of a BufferIO-owned function.
 
-Because Base methods usually are defined for abstract types like `Integer`, overloads of Base functions accept the same abstract types as Base's `IO` methods do (e.g. `n::Integer`), and convert to the concrete type straight away.
+Overloads of Base functions may support fewer argument types than Base's `IO` methods do, since a `MethodError` does not violate Base's semantics.
+For example, `unsafe_write` only accepts a `Ptr{UInt8}`, not any `ref`, because BufferIO only reads and writes bytes.
+But where the argument type is only a representation of the same value, like `n::Integer`, accept the same abstract type as Base does, and convert to the concrete type straight away.
 This can be done once, in a generic method on the abstract type that converts and forwards, so that subtypes and the methods doing the work keep concrete types.
 
 ### When committing

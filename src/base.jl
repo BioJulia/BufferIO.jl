@@ -411,50 +411,16 @@ function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
 end
 
 """
-    unsafe_write(io::AbstractBufWriter, ref, nbytes::Integer)::Int
+    unsafe_write(io::AbstractBufWriter, p::Ptr{UInt8}, nbytes::Integer)::Int
 
-Write `nbytes` bytes from `ref` (converted to a pointer) to `io`,
-and return `Int(nbytes)`.
+Write `nbytes` bytes from the memory pointed to by `p` to `io`, and return `Int(nbytes)`.
 If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.WriterFull)`.
 In that case, some bytes may already have been written.
 
-`ref` may be a `Ref{T}` of any bitstype `T`, in which case the bytes of the referenced
-value are written.
-
 !!! warning
-    Safety: If `ref` is a pointer, the caller is responsible for ensuring that the
-    pointer is valid, GC protected, and points to at least `nbytes` data of readable memory.
-    If `ref` is a `Ref{T}` that is not a `Ptr`, `nbytes` must not exceed `sizeof(T)`.
+    Safety: The caller is responsible for ensuring that `p` is valid, GC protected,
+    and points to at least `nbytes` bytes of readable memory.
 """
-function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
-    cval = Base.cconvert(Ptr{UInt8}, ref)
-    GC.@preserve cval begin
-        ptr = Base.unsafe_convert(Ptr{UInt8}, cval)::Ptr{UInt8}
-        return unsafe_write(io, ptr, nbytes)
-    end
-end
-
-# Base's `IO` accepts any `Integer` for `nbytes`. Inlined for the same reason as the
-# `Ref{T}` method below.
-@inline function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::Integer)::Int
-    return unsafe_write(io, ref, UInt(nbytes)::UInt)
-end
-
-# Base's `unsafe_convert(Ptr{UInt8}, ::Ref{T})` only exists for some `T`, so we convert
-# to `Ptr{T}` instead, like Base's `unsafe_write(::IO, ::Ref, ::Integer)` does.
-# Inlining means the pointer, not the `Ref`, is passed to any non-inlined slow path,
-# which lets the compiler allocate the `Ref` on the stack.
-# A `Ptr{T}` is a `Ref{T}`, but points to raw memory
-# the caller vouches for, so it's exempt. Both checks are resolved at compile time.
-@inline function Base.unsafe_write(io::AbstractBufWriter, ref::Ref{T}, nbytes::UInt)::Int where {T}
-    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only write from a Ref{T} if T is a bitstype"))
-    cval = Base.cconvert(Ref{T}, ref)
-    GC.@preserve cval begin
-        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cval)::Ptr)
-        return unsafe_write(io, ptr, nbytes)
-    end
-end
-
 function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
     return if (length(buffer) % UInt) ≥ n_bytes
@@ -464,6 +430,11 @@ function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt
     else
         _unsafe_write(io, ptr, n_bytes)
     end
+end
+
+# Base's `IO` accepts any `Integer` for `nbytes`
+function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::Integer)::Int
+    return unsafe_write(io, ptr, UInt(n_bytes)::UInt)
 end
 
 @noinline function _unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
@@ -506,16 +477,18 @@ function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
     # However, currently this would force the allocation of a new Memory object sharing
     # memory with `s`, so we can choose the more optimised route by using unsafe call instead.
     # We can change this if `ImmutableMemoryView(s)` no longer allocates in the future.
-    return unsafe_write(io, s, sizeof(s) % UInt)
+    return GC.@preserve s unsafe_write(io, pointer(s), sizeof(s) % UInt)
 end
 
-Base.write(io::AbstractBufWriter, mem::MemoryView{UInt8}) = unsafe_write(io, mem, length(mem) % UInt)
+function Base.write(io::AbstractBufWriter, mem::MemoryView{UInt8})
+    return GC.@preserve mem unsafe_write(io, pointer(mem), length(mem) % UInt)
+end
 
 function Base.write(
         io::AbstractBufWriter,
         mem::Base.CodeUnits{UInt8, <:Union{String, SubString{String}}},
     )
-    return unsafe_write(io, mem, sizeof(mem) % UInt)
+    return GC.@preserve mem unsafe_write(io, pointer(mem), sizeof(mem) % UInt)
 end
 
 Base.write(io::AbstractBufWriter, v::Union{Memory{UInt8}, Array{UInt8}}) = write(io, ImmutableMemoryView(v))
