@@ -30,7 +30,7 @@ export AbstractBufReader,
     read_all!,
     unsafe_read_all!,
     line_views,
-    discard,
+    discard_all,
     discard_exact,
     takestring!,
     write_repeated,
@@ -193,7 +193,8 @@ abstract type AbstractBufReader end
 An `AbstractBufWriter` is an IO-like type which exposes mutable memory
 to the user, which can be written to directly.
 This can help avoiding intermediate allocations when writing.
-For example, integers can usually be written to buffered writers without allocating.
+For example, data can be encoded directly into the buffer of a writer, instead of
+first being encoded into a temporary buffer, and then copied to the writer.
 
 !!! warning
     By default, subtypes of `AbstractBufWriter` are **not threadsafe**, so concurrent usage
@@ -464,6 +465,9 @@ This is the unsafe counterpart of [`read_all!`](@ref).
 
 Throw an `ArgumentError` if `nbytes` is negative.
 
+See also: [`unsafe_read`](@ref Base.unsafe_read(::AbstractBufReader, ::Ptr{UInt8}, ::UInt)),
+which throws if `io` is EOF before `nbytes` bytes are copied.
+
 !!! warning
     Safety: The caller is responsible for ensuring that `p` is valid, GC protected,
     and points to at least `nbytes` bytes of writeable memory.
@@ -484,7 +488,6 @@ julia> String(v[1:6])
 "abcdef"
 ```
 """
-
 function unsafe_read_all!(x::AbstractBufReader, p::Ptr{UInt8}, n::Int)::Int
     n < 0 && throw(ArgumentError("nbytes cannot be negative"))
     buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
@@ -509,7 +512,7 @@ end
 end
 
 """
-    discard(io::AbstractBufReader, n::Int)::Int
+    discard_all(io::AbstractBufReader, n::Int)::Int
 
 Read `n` bytes from `io`, or until EOF, whichever comes first, and discard
 the read bytes. Return the number of bytes discarded.
@@ -520,29 +523,30 @@ Subtypes of `AbstractBufReader` may implement this using seeking.
 
 Throw an `ArgumentError` if `n < 0`.
 
-See also: [`discard_exact`](@ref)
+See also: [`discard_exact`](@ref), and [`skip`](@ref Base.skip(::AbstractBufReader, ::Integer))
+to seek instead.
 
 # Examples
 ```jldoctest
 julia> reader = CursorReader("abcdefghij");
 
-julia> discard(reader, 5)
+julia> discard_all(reader, 5)
 5
 
 julia> read(reader, 3) |> String
 "fgh"
 
-julia> discard(reader, 10) # 2 bytes remaining
+julia> discard_all(reader, 10) # 2 bytes remaining
 2
 
 julia> eof(reader)
 true
 
-julia> discard(reader, 100)
+julia> discard_all(reader, 100)
 0
 ```
 """
-function discard(io::AbstractBufReader, n::Int)
+function discard_all(io::AbstractBufReader, n::Int)
     n < 0 && throw(ArgumentError("Cannot discard a negative number of bytes"))
     remaining = n
     while !iszero(remaining)
@@ -558,7 +562,7 @@ end
 """
     discard_exact(io::AbstractBufReader, n::Int)::Nothing
 
-Like [`discard`](@ref), but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes
+Like [`discard_all`](@ref), but throw an `IOError` of kind `IOErrorKinds.EOF` if `n` bytes
 could not be discarded.
 
 # Examples
@@ -578,8 +582,8 @@ ERROR: End of file
 ```
 """
 function discard_exact(io::AbstractBufReader, n::Int)
-    # `discard` throws the `ArgumentError` for negative `n`
-    discarded = discard(io, n)
+    # `discard_all` throws the `ArgumentError` for negative `n`
+    discarded = discard_all(io, n)
     discarded == n || throw(IOError(IOErrorKinds.EOF))
     return nothing
 end
