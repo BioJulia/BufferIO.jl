@@ -120,6 +120,81 @@ end
     @test String(get_buffer(io)) == "jklmnopqrstuvwxyz"
 end
 
+@testset "ExpandReader get_nonempty_buffer" begin
+    # Inner's buffer is forwarded if inner can buffer enough bytes
+    io = ExpandReader(BufferIO.Testing.BoundedReader("abcdefghij", 6; max_fill = 2))
+    @test get_nonempty_buffer(io, 5)[1:5] == b"abcde"
+    @test !io.serving_own
+
+    # Else, the own buffer is allocated once with room for all the bytes
+    alphabet = "abcdefghijklmnopqrstuvwxyz"
+    io = ExpandReader(BlockReader(alphabet, 4))
+    @test get_nonempty_buffer(io, 10) == b"abcdefghij"
+    @test io.serving_own
+    mem = MemoryViews.memory(io.buffer)
+    @test length(mem) == BufferIO.overallocation_size(UInt(10))
+    @test position(io) == 0
+
+    # If all of the own buffer's bytes are in inner's buffer, switch back to inner
+    consume(io, 9)
+    @test get_nonempty_buffer(io, 2)[1:2] == b"jk"
+    @test !io.serving_own
+    @test read(io) == codeunits(alphabet[10:end])
+
+    # More bytes are added to the existing own buffer
+    io = ExpandReader(BlockReader(alphabet, 4))
+    fill_buffer(io)
+    fill_buffer(io)
+    @test io.serving_own
+    consume(io, 2)
+    @test get_nonempty_buffer(io, 20) == codeunits(alphabet[3:22])
+    @test position(io) == 2
+    @test read(io) == codeunits(alphabet[3:end])
+
+    # EOF before buffering `min_size` bytes
+    io = ExpandReader(BlockReader("abcdef", 4))
+    @test get_nonempty_buffer(io, 7) === nothing
+    @test read(io) == b"abcdef"
+    io = ExpandReader(BlockReader("abcdef", 4))
+    fill_buffer(io)
+    fill_buffer(io)
+    @test io.serving_own
+    @test get_nonempty_buffer(io, 7) === nothing
+    @test read(io) == b"abcdef"
+
+    # Nonpositive min_size
+    io = ExpandReader(BlockReader("abc", 2))
+    @test get_nonempty_buffer(io, 0) == b"ab"
+    @test get_nonempty_buffer(io, -1) == b"ab"
+
+    # Expandable inners provide the buffer themselves
+    io = ExpandReader(BufReader(IOBuffer(alphabet), 2))
+    @test get_nonempty_buffer(io, 8)[1:8] == b"abcdefgh"
+    @test !io.serving_own
+    @test length(BufferIO.get_memory(io.inner)) == BufferIO.overallocation_size(UInt(8))
+
+    io = ExpandReader(BlockReader("abc", 2))
+    close(io)
+    @test_throws IOError get_nonempty_buffer(io, 1)
+
+    # Repeatedly requesting a buffer as large as the own buffer's memory grows the memory,
+    # instead of moving almost all the own bytes on every call
+    data = [UInt8(i % 251) for i in 1:1000]
+    io = ExpandReader(BlockReader(data, 4))
+    for _ in 1:10
+        fill_buffer(io)
+    end
+    @test io.serving_own
+    min_size = length(MemoryViews.memory(io.buffer))
+    ok = true
+    for i in 1:(length(data) - min_size + 1)
+        ok &= get_nonempty_buffer(io, min_size)[1:min_size] == data[i:(i + min_size - 1)]
+        consume(io, 1)
+    end
+    @test ok
+    @test length(MemoryViews.memory(io.buffer)) > min_size
+end
+
 @testset "ExpandReader line_views" begin
     # Lines longer than inner's buffer
     s = "a\n" * "b"^100 * "\n\n" * "c"^30 * "\nd\n" * "e"^50
@@ -399,6 +474,14 @@ end
     consume(io, 5)
     consume(io.inner, 2)
     @test_throws ErrorException fill_buffer(io)
+
+    # Same as above, but switching to inner in get_nonempty_buffer
+    io = ExpandReader(BlockReader("abcdefghij", 4))
+    fill_buffer(io)
+    fill_buffer(io)
+    consume(io, 5)
+    consume(io.inner, 2)
+    @test_throws ErrorException get_nonempty_buffer(io, 4)
 end
 
 @testset "ExpandReader randomized" begin
@@ -412,8 +495,16 @@ end
     pos = 0
     ok = true
     for _ in 1:2000
-        r = rand_below(10)
-        if r < 4
+        r = rand_below(11)
+        if r == 10
+            min_size = rand_below(60)
+            buffer = get_nonempty_buffer(io, min_size)
+            ok &= if buffer === nothing
+                1000 - pos < max(min_size, 1)
+            else
+                length(buffer) ≥ max(min_size, 1)
+            end
+        elseif r < 4
             fill_buffer(io)
         elseif r < 8
             n = rand_below(length(get_buffer(io)) + 1)

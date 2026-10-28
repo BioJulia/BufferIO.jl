@@ -6,11 +6,11 @@
 
     # Test custom buffer size
     writer2 = BufWriter(io, 1024)
-    @test length(writer2.ref.mem) == 1024
+    @test length(BufferIO.get_memory(writer2)) == 1024
 
     # Test minimum buffer size
     writer3 = BufWriter(io, 1)
-    @test length(writer3.ref.mem) == 1
+    @test length(BufferIO.get_memory(writer3)) == 1
 
     # Test invalid buffer size
     @test_throws ArgumentError BufWriter(io, 0)
@@ -28,7 +28,7 @@ end
     @test grow_buffer(writer) == 4
     @test length(get_buffer(writer)) == 4
     @test grow_buffer(writer) > 0
-    @test length(get_buffer(writer)) == length(writer.ref.mem) == writer.capacity
+    @test length(get_buffer(writer)) == length(BufferIO.get_memory(writer)) == writer.capacity
     resize_buffer(writer, 2)
     @test write(writer, "ef") == 2
     @test isempty(get_buffer(writer))
@@ -114,7 +114,7 @@ end
     # grow_buffer on empty buffer should expand
     n_grown2 = grow_buffer(writer)
     @test n_grown2 > 0  # buffer expanded
-    @test length(writer.ref.mem) > 5
+    @test length(BufferIO.get_memory(writer)) > 5
 end
 
 @testset "flush and close" begin

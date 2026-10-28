@@ -160,6 +160,31 @@ end
 
 end
 
+@testset "get_nonempty_buffer with min_size" begin
+    reader = BoundedReader("abcdefgh", 4; max_fill = 3)
+    @test get_nonempty_buffer(reader, 4) == b"abcd"
+    @test_throws IOError get_nonempty_buffer(reader, 5)
+    discard_exact(reader, 2)
+    @test get_nonempty_buffer(reader, 4) == b"cdef"
+
+    # A reader with a full buffer that can't grow can't detect EOF, so it throws
+    reader = BoundedReader("abcd", 4)
+    err = try
+        get_nonempty_buffer(reader, 5)
+    catch e
+        e
+    end
+    @test err isa IOError
+    @test err.kind == IOErrorKinds.BufferTooShort
+
+    # EOF before the buffer is full
+    reader = BoundedReader("abc", 4)
+    @test get_nonempty_buffer(reader, 4) === nothing
+    @test read(reader) == b"abc"
+
+    @test get_nonempty_buffer(GenericBufReader("abc"), 0) == b"abc"
+end
+
 @testset "unsafe_read" begin
     data = collect(UInt8, 1:16)
     for make in [() -> GenericBufReader(data), () -> BoundedReader(data, 3), () -> CursorReader(data)]
