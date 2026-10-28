@@ -247,6 +247,48 @@ end
     return A
 end
 
+"""
+    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Integer)::Nothing
+
+Copy exactly `nbytes` bytes from `io` to the memory pointed to by `p`.
+If `io` reaches EOF before `nbytes` bytes are copied, throw an `IOError` of kind
+`IOErrorKinds.EOF`. In that case, the bytes before EOF may already have been copied.
+
+Throw an `InexactError` if `nbytes` is negative.
+
+See also: [`unsafe_read_all!`](@ref), which stops at EOF instead of throwing.
+
+!!! warning
+    Safety: The caller is responsible for ensuring that `p` is valid, GC protected,
+    and points to at least `nbytes` bytes of writeable memory.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> v = zeros(UInt8, 4);
+
+julia> GC.@preserve v unsafe_read(reader, pointer(v), 4)
+
+julia> String(v)
+"abcd"
+
+julia> GC.@preserve v unsafe_read(reader, pointer(v), 4) # 2 bytes remaining
+ERROR: End of file
+[...]
+```
+"""
+function Base.unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)
+    n = Int(nbytes)::Int
+    unsafe_read_all!(io, p, n) == n || throw(IOError(IOErrorKinds.EOF))
+    return nothing
+end
+
+# Base's `IO` accepts any `Integer` for `nbytes`
+function Base.unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Integer)
+    return unsafe_read(io, p, UInt(nbytes)::UInt)
+end
+
 # delim is UInt8, if delimiter is not found, copies to end
 function Base.copyuntil(
         out::Union{IO, AbstractBufWriter},
@@ -542,7 +584,7 @@ Return whether `io` is still usable, that is, return `false` if and only if `io`
 made unusable by `close` or `take_inner`, or a similar function.
 
 For types that remain usable after `close`, such as [`VecWriter`](@ref), `isopen`
-should return `true`, even after `close` has been called on the io. 
+should return `true`, even after `close` has been called on the io.
 Hence, `isopen(io)` does not generically tell whether `close(io)` has been called.
 
 # Examples
@@ -569,6 +611,36 @@ Base.isopen(::Union{AbstractBufReader, AbstractBufWriter})
 function Base.seek(x::Union{AbstractBufReader, AbstractBufWriter}, offset::Integer)
     offset isa Int && throw(MethodError(seek, (x, offset)))
     return seek(x, Int(offset)::Int)
+end
+
+"""
+    skip(io::AbstractBufReader, offset::Integer) -> io
+
+Seek `io` by `offset` relative to its current position, and return `io`.
+
+Like `relative_seek`, this requires `io` to support seeking, and seeking beyond either end
+of `io` throws an `IOError` of kind `BadSeek`.
+To advance a reader that may not support seeking, by reading and discarding bytes,
+use [`discard_all`](@ref) or [`discard_exact`](@ref).
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> skip(reader, 4); String(read(reader, 1))
+"e"
+
+julia> skip(reader, -3); String(read(reader))
+"cdef"
+
+julia> skip(reader, 1)
+ERROR: Invalid seek, possibly seek out of bounds
+[...]
+```
+"""
+function Base.skip(io::AbstractBufReader, offset::Integer)
+    relative_seek(io, Int(offset)::Int)
+    return io
 end
 
 Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)

@@ -23,14 +23,18 @@
   have been renamed to `keep`, with the opposite meaning and default (`keep = false`),
   to match `eachline`, `readline` and `copyline`. Replace `chomp = false` with
   `keep = true`.
-* `skip(::AbstractBufReader, n)` has been removed, because it read and discarded bytes,
-  whereas `Base.skip` is documented to seek relative to the current position.
-  The same functionality is now provided by the new function `discard(io, n::Int)`.
+* `skip(::AbstractBufReader, n)` now seeks relative to the current position, like
+  `relative_seek`, and returns `io`, as `Base.skip` is documented to do. Previously, it
+  read and discarded bytes, and returned the number of bytes discarded.
+  That functionality is now provided by the new function `discard_all(io, n::Int)`,
+  which works on readers that can't seek.
   Correspondingly, `skip_exact` has been renamed to `discard_exact`.
-  To seek relative to the current position, use `relative_seek`.
-* `unsafe_read(::AbstractBufReader, ref, nbytes)` has been removed, because it silently
-  stopped at EOF, whereas `Base.unsafe_read` is documented to copy `nbytes` bytes.
-  The same functionality is now provided by the new function
+* `unsafe_read(::AbstractBufReader, p, nbytes)` now copies exactly `nbytes` bytes,
+  returns `nothing`, and throws an `IOError` of kind `EOF` if `io` reaches EOF first,
+  as `Base.unsafe_read` is documented to do. It now only accepts a `Ptr{UInt8}` for `p`.
+  Previously, it silently stopped at EOF, returned the number of bytes copied, and accepted
+  anything that could be converted to a pointer, such as a `Ref` or a `Vector{UInt8}`.
+  The old functionality is now provided by the new function
   `unsafe_read_all!(io, p::Ptr{UInt8}, nbytes::Int)`, the unsafe counterpart of
   `read_all!`. It throws an `ArgumentError` if `nbytes` is negative.
   `unsafe_read(::IOReader, ...)` is unaffected.
@@ -44,8 +48,8 @@
   The behaviour of `close`, `isopen` and `take_inner` is now documented: `close` is
   idempotent, and closing a writer flushes it first.
 * `discard_exact` (previously `skip_exact`) and `write_repeated` now take `n::Int` instead
-  of `n::Integer`. As a rule, BufferIO's own functions take concrete types, while
-  overloads of Base functions accept any `Integer`.
+  of `n::Integer`, as does the new function `discard_all`. As a rule, BufferIO's own
+  functions take concrete types, while overloads of Base functions accept any `Integer`.
 * `filesize(::AbstractBufWriter)` now includes data which is consumed, but not yet
   flushed, i.e. it is the size the file will have once flushed. Previously, it only
   counted flushed data. Consequently, `position(io)` is now always in `0:filesize(io)`,
@@ -68,7 +72,7 @@
 * `seek` now accepts any `Integer` for all `AbstractBufReader`s and `AbstractBufWriter`s,
   through a generic fallback that converts to `Int`. Implementors still define `seek(::T, ::Int)`.
   Previously, e.g. `seek(::BufReader, ::Int32)` threw a `MethodError`.
-* `unsafe_write` now accepts any `Integer` for `nbytes`, not just `UInt`.
+* `unsafe_write` and `unsafe_read` now accept any `Integer` for `nbytes`, not just `UInt`.
 * `readline` on an `AbstractBufReader` is faster: 1.4x to 3x for lines that fit in the
   buffer, and 3x to 5x for lines longer than the buffer. If the reader can grow its
   buffer, `readline` now grows it to fit the line, like `line_views` does.

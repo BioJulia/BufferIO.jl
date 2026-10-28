@@ -158,9 +158,40 @@ end
     floats = [0.0, 0.0]
     @test_throws MethodError GC.@preserve(floats, unsafe_read_all!(GenericBufReader(data), pointer(floats), 16))
 
-    # `Base.unsafe_read` is documented to copy `nbytes` bytes, whereas `unsafe_read_all!`
-    # stops at EOF, so it is not overloaded
-    @test !hasmethod(unsafe_read, Tuple{CursorReader, Ptr{UInt8}, UInt})
+end
+
+@testset "unsafe_read" begin
+    data = collect(UInt8, 1:16)
+    for make in [() -> GenericBufReader(data), () -> BoundedReader(data, 3), () -> CursorReader(data)]
+        arr = zeros(UInt8, 20)
+        GC.@preserve arr begin
+            reader = make()
+            @test unsafe_read(reader, pointer(arr), UInt(5)) === nothing
+            @test arr[1:5] == data[1:5]
+            # Any `Integer` is accepted
+            @test unsafe_read(reader, pointer(arr, 6), Int32(6)) === nothing
+            @test arr[1:11] == data[1:11]
+            @test unsafe_read(reader, pointer(arr), 0) === nothing
+            # Copies all available bytes, then throws, if `io` is EOF before `nbytes` bytes
+            @test try
+                unsafe_read(reader, pointer(arr, 12), 9)
+                false
+            catch e
+                e isa IOError && e.kind == IOErrorKinds.EOF
+            end
+            @test arr[1:16] == data
+            @test eof(reader)
+            @test unsafe_read(reader, pointer(arr), 0) === nothing
+            @test_throws IOError unsafe_read(reader, pointer(arr), 1)
+            @test_throws InexactError unsafe_read(make(), pointer(arr), -1)
+        end
+    end
+
+    # Only bytes are read, and only into a pointer
+    @test_throws MethodError unsafe_read(GenericBufReader(data), Ref{UInt64}(0), 8)
+    @test_throws MethodError unsafe_read(GenericBufReader(data), zeros(UInt8, 8), 8)
+    floats = [0.0, 0.0]
+    @test_throws MethodError GC.@preserve(floats, unsafe_read(GenericBufReader(data), pointer(floats), 16))
 end
 
 @testset "readavailable" begin
@@ -541,24 +572,24 @@ end
     end
 end
 
-@testset "discard" begin
+@testset "discard_all" begin
     # Test basic discarding
     reader = CursorReader("hello world")
-    n_discarded = discard(reader, 5)
+    n_discarded = discard_all(reader, 5)
     @test n_discarded == 5
     @test position(reader) == 5
     @test String(read(reader)) == " world"
 
     # Test discarding more than available
     reader2 = CursorReader("abc")
-    n_discarded2 = discard(reader2, 10)
+    n_discarded2 = discard_all(reader2, 10)
     @test n_discarded2 == 3  # Only 3 bytes available
     @test eof(reader2)
     @test read(reader2) == UInt8[]
 
     # Test discarding zero bytes
     reader3 = CursorReader("test")
-    n_discarded3 = discard(reader3, 0)
+    n_discarded3 = discard_all(reader3, 0)
     @test n_discarded3 == 0
     @test position(reader3) == 0
     @test String(read(reader3)) == "test"
@@ -566,7 +597,7 @@ end
     # Test discarding from middle of reader
     reader4 = CursorReader("abcdefgh")
     read(reader4, 3)  # Read "abc", now at position 3
-    n_discarded4 = discard(reader4, 2)
+    n_discarded4 = discard_all(reader4, 2)
     @test n_discarded4 == 2
     @test position(reader4) == 5
     @test String(read(reader4)) == "fgh"
@@ -574,55 +605,87 @@ end
     # Test discarding all remaining bytes
     reader5 = CursorReader("123456")
     read(reader5, 2)  # Read "12", now at position 2
-    n_discarded5 = discard(reader5, 4)
+    n_discarded5 = discard_all(reader5, 4)
     @test n_discarded5 == 4
     @test eof(reader5)
 
     # Test discarding from empty reader
     reader6 = CursorReader("")
-    n_discarded6 = discard(reader6, 5)
+    n_discarded6 = discard_all(reader6, 5)
     @test n_discarded6 == 0
     @test eof(reader6)
 
-    @testset "discard error conditions" begin
+    @testset "discard_all error conditions" begin
         # Test negative discard amount with CursorReader
         reader = CursorReader("test")
-        @test_throws ArgumentError discard(reader, -1)
-        @test_throws ArgumentError discard(reader, -10)
+        @test_throws ArgumentError discard_all(reader, -1)
+        @test_throws ArgumentError discard_all(reader, -10)
 
         # Test negative discard amount with BufReader
         io = IOBuffer("test")
         reader2 = BufReader(io)
-        @test_throws ArgumentError discard(reader2, -1)
-        @test_throws ArgumentError discard(reader2, -10)
+        @test_throws ArgumentError discard_all(reader2, -1)
+        @test_throws ArgumentError discard_all(reader2, -10)
 
         # Verify error messages contain expected text
         try
-            discard(CursorReader("test"), -5)
+            discard_all(CursorReader("test"), -5)
             error()
         catch e
             @test e isa ArgumentError
         end
     end
 
-    @testset "discard edge cases" begin
+    @testset "discard_all edge cases" begin
         # Test discard with exactly buffer-sized chunks
         io = IOBuffer("12345678")  # 8 bytes
         reader = BufReader(io, 4)   # Buffer size 4
-        n1 = discard(reader, 4)        # Discard exactly buffer size
+        n1 = discard_all(reader, 4)        # Discard exactly buffer size
         @test n1 == 4
         @test String(read(reader)) == "5678"
 
         # Test large discard amounts
         data = "x"^1000  # 1000 bytes
         reader3 = CursorReader(data)
-        n2 = discard(reader3, 500)
+        n2 = discard_all(reader3, 500)
         @test n2 == 500
         @test position(reader3) == 500
     end
+end
 
-    # `Base.skip` is documented to seek, which `discard` does not, so it is not overloaded
-    @test !hasmethod(skip, Tuple{CursorReader, Int})
+@testset "skip" begin
+    # `skip` seeks relative to the current position, and returns the reader
+    for make in [() -> CursorReader("abcdefghij"), () -> BufReader(IOBuffer("abcdefghij"), 3)]
+        reader = make()
+        @test skip(reader, 4) === reader
+        @test position(reader) == 4
+        @test read(reader, UInt8) == UInt8('e')
+        skip(reader, -3)
+        @test String(read(reader, 2)) == "cd"
+        skip(reader, 0)
+        @test position(reader) == 4
+        # Any `Integer` is accepted
+        skip(reader, Int32(2))
+        skip(reader, UInt8(1))
+        @test String(read(reader)) == "hij"
+        # Seeking beyond either end throws `BadSeek`
+        skip(reader, -10)
+        @test position(reader) == 0
+        for offset in [-1, 11]
+            @test try
+                skip(reader, offset)
+                false
+            catch e
+                e isa IOError && e.kind == IOErrorKinds.BadSeek
+            end
+        end
+        @test position(reader) == 0
+        skip(reader, 10)
+        @test eof(reader)
+    end
+
+    # `skip` seeks, so it does not fall back to reading and discarding bytes
+    @test_throws MethodError skip(BoundedReader("abc", 2), 1)
 end
 
 @testset "discard_exact" begin
@@ -692,7 +755,7 @@ end
 
         # Test partial discard followed by discard_exact failure
         reader7 = CursorReader("hello")
-        discard(reader7, 3)  # Discard "hel"
+        discard_all(reader7, 3)  # Discard "hel"
         @test_throws IOError discard_exact(reader7, 5)  # Try to discard 5 more, only 2 available
     end
 end
