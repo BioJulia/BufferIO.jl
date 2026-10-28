@@ -456,66 +456,34 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
 end
 
 """
-    unsafe_read_all!(io::AbstractBufReader, ref, nbytes::Int)::Int
+    unsafe_read_all!(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Int)::Int
 
-Copy bytes from `io` into `ref` (converted to a pointer) until either `nbytes` bytes are
+Copy bytes from `io` to the memory pointed to by `p` until either `nbytes` bytes are
 copied or `io` is EOF, returning the number of bytes copied.
 This is the unsafe counterpart of [`read_all!`](@ref).
 
 Throw an `ArgumentError` if `nbytes` is negative.
 
-`ref` is converted to a pointer as follows:
-* If `ref` is a `Ref{T}`: `cref = Base.cconvert(Ref{T}, ref)`, then
-  `Base.unsafe_convert(Ref{T}, cref)`, cast to `Ptr{UInt8}`. Hence, `T` may be any
-  bitstype. Throw an `ArgumentError` if `T` is not a bitstype, unless `ref` is a `Ptr`.
-* Otherwise: `cref = Base.cconvert(Ptr, ref)`, then `Base.unsafe_convert(Ptr{UInt8}, cref)`.
-
-Safety: The user must ensure that
-* The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
-  For a `Ref{T}` that is not a `Ptr`, this means `nbytes` must not exceed `sizeof(T)`.
-* `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
-  invalid during the `GC.@preserve` block.
+!!! warning
+    Safety: The caller is responsible for ensuring that `p` is valid, GC protected,
+    and points to at least `nbytes` bytes of writeable memory.
 
 # Examples
 ```jldoctest
 julia> reader = CursorReader("abcdef");
 
-julia> ref = Ref((0x00, 0x00));
-
-julia> unsafe_read_all!(reader, ref, 2)
-2
-
-julia> ref[] == (UInt8('a'), UInt8('b'))
-true
-
 julia> v = zeros(UInt8, 8);
 
-julia> GC.@preserve v unsafe_read_all!(reader, pointer(v), 8) # 4 bytes remaining
+julia> GC.@preserve v unsafe_read_all!(reader, pointer(v), 2)
+2
+
+julia> GC.@preserve v unsafe_read_all!(reader, pointer(v, 3), 6) # 4 bytes remaining
 4
 
-julia> String(v[1:4])
-"cdef"
+julia> String(v[1:6])
+"abcdef"
 ```
 """
-function unsafe_read_all!(x::AbstractBufReader, ref, n::Int)::Int
-    cref = Base.cconvert(Ptr, ref)
-    GC.@preserve cref begin
-        ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
-        result = unsafe_read_all!(x, ptr, n)
-    end
-    return result
-end
-
-# See the comment on `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)`
-@inline function unsafe_read_all!(x::AbstractBufReader, ref::Ref{T}, n::Int)::Int where {T}
-    ref isa Ptr || isbitstype(T) || throw(ArgumentError("Can only read into a Ref{T} if T is a bitstype"))
-    cref = Base.cconvert(Ref{T}, ref)
-    GC.@preserve cref begin
-        ptr = Ptr{UInt8}(Base.unsafe_convert(Ref{T}, cref)::Ptr)::Ptr{UInt8}
-        result = unsafe_read_all!(x, ptr, n)
-    end
-    return result
-end
 
 function unsafe_read_all!(x::AbstractBufReader, p::Ptr{UInt8}, n::Int)::Int
     n < 0 && throw(ArgumentError("nbytes cannot be negative"))
