@@ -32,6 +32,9 @@
   `unsafe_read_all!(io, p::Ptr{UInt8}, nbytes::Int)`, the unsafe counterpart of
   `read_all!`. It throws an `ArgumentError` if `nbytes` is negative.
   `unsafe_read(::IOReader, ...)` is unaffected.
+* `unsafe_write(::AbstractBufWriter, p, nbytes)` now only accepts a `Ptr{UInt8}` for `p`.
+  Previously, it accepted anything that could be converted to a pointer, such as a `Ref`
+  or a `Vector{UInt8}`. `unsafe_write(::IOWriter, ...)` is unaffected.
 * `isopen` is now a required method of `AbstractBufReader` and `AbstractBufWriter`,
   like `close`. It returns whether the IO is still usable, so types whose `close` does
   nothing, such as `CursorReader`, always return `true`. Subtypes defined outside BufferIO
@@ -74,8 +77,6 @@
   printing through an `IOWriter`. Previously, printing anything but a `String` or
   `SubString{String}` threw a `MethodError`, and the varargs forms, e.g.
   `println(io, "x")`, silently printed the writer and the arguments to stdout.
-* `unsafe_write(::AbstractBufWriter, ::Ref, ::UInt)` now works for a `Ref` of any type.
-  Previously, it threw a `MethodError` for e.g. `Ref{Int64}`.
 
 # 0.2.8
 * `BufferIO.Testing.BoundedReader` now moves its buffer to new memory on every call to

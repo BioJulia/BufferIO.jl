@@ -95,7 +95,7 @@ end
     # Test basic unsafe_write with array
     io = GenericBufWriter()
     arr = UInt8[0x48, 0x65, 0x6c, 0x6c, 0x6f]  # "Hello"
-    n_written = unsafe_write(io, arr, UInt(5))
+    n_written = GC.@preserve arr unsafe_write(io, pointer(arr), UInt(5))
     @test n_written == 5
     @test String(io.x.vec) == "Hello"
 
@@ -111,60 +111,49 @@ end
 
     # Test writing zero bytes
     io3 = GenericBufWriter()
-    n_written3 = unsafe_write(io3, UInt8[], UInt(0))
+    empty_arr = UInt8[]
+    n_written3 = GC.@preserve empty_arr unsafe_write(io3, pointer(empty_arr), UInt(0))
     @test n_written3 == 0
     @test isempty(io3.x.vec)
 
     # Test writing partial array
     io4 = GenericBufWriter()
     arr4 = collect(b"abcdefgh")
-    n_written4 = unsafe_write(io4, arr4, UInt(4))
+    n_written4 = GC.@preserve arr4 unsafe_write(io4, pointer(arr4), UInt(4))
     @test n_written4 == 4
     @test String(io4.x.vec) == "abcd"
 
-    # Writing from a `Ref` of any type
-    x = 0x0102030405060708
-    expected = reinterpret(UInt8, [x])
-    io5 = GenericBufWriter()
-    @test unsafe_write(io5, Ref(x), UInt(8)) == 8
-    @test io5.x.vec == expected
-
-    # The writer's buffer is too short to hold the value, so it is written in chunks
+    # The writer's buffer is too short to hold the data, so it is written in chunks
+    bytes = collect(UInt8, 1:16)
     sink = UInt8[]
-    io6 = BoundedWriter(sink, 3)
-    @test unsafe_write(io6, Ref(x), UInt(8)) == 8
-    flush(io6)
-    @test sink == expected
+    io5 = BoundedWriter(sink, 3)
+    @test GC.@preserve(bytes, unsafe_write(io5, pointer(bytes), UInt(16))) == 16
+    flush(io5)
+    @test sink == bytes
 
     # `nbytes` can be any non-negative `Integer`
-    io5 = GenericBufWriter()
-    @test unsafe_write(io5, Ref(x), Int32(8)) == 8
-    @test io5.x.vec == expected
-    @test_throws InexactError unsafe_write(io5, Ref(x), -1)
+    io6 = GenericBufWriter()
+    GC.@preserve bytes begin
+        @test unsafe_write(io6, pointer(bytes), Int32(8)) == 8
+        @test_throws InexactError unsafe_write(io6, pointer(bytes), -1)
+    end
+    @test io6.x.vec == bytes[1:8]
 
-    io7 = GenericBufWriter()
-    @test unsafe_write(io7, Ref((0x61, 0x62, 0x63)), UInt(3)) == 3
-    @test io7.x.vec == b"abc"
-
-    # Only the first `nbytes` bytes are written
-    io8 = GenericBufWriter()
-    @test unsafe_write(io8, Ref(x), UInt(2)) == 2
-    @test io8.x.vec == expected[1:2]
-
-    # Refs of non-bitstypes would write e.g. a string's length or a vector's pointer
-    @test_throws ArgumentError unsafe_write(GenericBufWriter(), Ref("hello"), UInt(5))
-    @test_throws ArgumentError unsafe_write(GenericBufWriter(), Ref([0x61, 0x62]), UInt(2))
-    @test_throws ArgumentError unsafe_write(GenericBufWriter(), Ref{Any}(x), UInt(8))
-
-    # A `Ptr{T}` is a `Ref{T}`, but may point to more than `sizeof(T)` bytes
+    # Only bytes are written, and only from a pointer
+    @test_throws MethodError unsafe_write(GenericBufWriter(), Ref(0x0102030405060708), UInt(8))
+    @test_throws MethodError unsafe_write(GenericBufWriter(), bytes, UInt(8))
     floats = [1.0, 2.0]
-    io9 = GenericBufWriter()
-    @test GC.@preserve(floats, unsafe_write(io9, pointer(floats), UInt(16))) == 16
-    @test io9.x.vec == reinterpret(UInt8, floats)
+    @test_throws MethodError GC.@preserve(floats, unsafe_write(GenericBufWriter(), pointer(floats), UInt(16)))
+
+    # An `IOWriter` is an `IO`, so Base converts e.g. a `Ref` to a pointer
+    x = 0x0102030405060708
+    io7 = GenericBufWriter()
+    @test unsafe_write(IOWriter(io7), Ref(x), UInt(8)) == 8
+    @test io7.x.vec == reinterpret(UInt8, [x])
 
     # Writer cannot make room for all bytes
     err = try
-        unsafe_write(FixedWriter(3), Ref(x), UInt(8))
+        GC.@preserve bytes unsafe_write(FixedWriter(3), pointer(bytes), UInt(8))
     catch e
         e
     end
