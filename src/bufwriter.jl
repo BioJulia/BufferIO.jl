@@ -213,13 +213,13 @@ function get_unflushed(x::BufWriter)::MutableMemoryView{UInt8}
 end
 
 """
-    shallow_flush(io::AbstractBufWriter)::Int
+    shallow_flush(io::BufWriter)::Int
 
-Clear the buffer(s) of `io` by writing to the underlying I/O, but do not
-flush the underlying I/O.
+Clear the buffer of `io` by writing to the wrapped IO, but do not flush the wrapped IO.
 Return the number of bytes flushed.
 
-This function is not generically defined for `AbstractBufWriter`.
+This function is only defined for `BufWriter`, not generically for `AbstractBufWriter`.
+Generic code should use `flush` instead.
 
 ```jldoctest
 julia> io = IOBuffer();

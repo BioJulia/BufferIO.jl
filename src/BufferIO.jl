@@ -220,7 +220,6 @@ They may optionally implement
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`
 * `get_unflushed(io::T)`
-* `shallow_flush(io::T)`
 * `resize_buffer(io::T, ::Int)`
 * `get_nonempty_buffer(io::T, ::Int)`
 * `Base.unsafe_write(io::T, ::Ptr{UInt8}, ::UInt)`
