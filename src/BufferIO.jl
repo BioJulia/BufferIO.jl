@@ -11,7 +11,6 @@ export AbstractBufReader,
     BufReader,
     BufWriter,
     VecWriter,
-    ByteVector,
     IOReader,
     IOWriter,
     CursorReader,
@@ -180,6 +179,7 @@ for details of the implementation:
 * `Base.position(io::T)`
 * `resize_buffer(io::T, ::Int)`
 * `BufferIO.is_expandable(::Type{T})`
+* `unsafe_read_all!(io::T, ::Ptr{UInt8}, ::Int)`
 
 `AbstractBufReader`s have implementations for many Base IO methods, but with more precisely
 specified semantics than for `Base.IO`.
@@ -222,6 +222,7 @@ They may optionally implement
 * `shallow_flush(io::T)`
 * `resize_buffer(io::T, ::Int)`
 * `get_nonempty_buffer(io::T, ::Int)`
+* `Base.unsafe_write(io::T, ::Ptr{UInt8}, ::UInt)`
 """
 abstract type AbstractBufWriter end
 

@@ -84,7 +84,7 @@ end
     data = UInt8[0x00, 0x67, 0x68, 0x69, 0x00]
     @test write(io, view(data, 2:4)) == 3
 
-    bytes = ByteVector(undef, 3)
+    bytes = Vector{UInt8}(undef, 3)
     copyto!(bytes, b"jkl")
     @test write(io, bytes) == 3
 

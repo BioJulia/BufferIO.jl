@@ -8,7 +8,7 @@
 * When a `LineViewIterator` is iterated, and the underlying IO cannot buffer an entire line,
   an `IOError` with kind `BufferTooShort` is now thrown, whereas previously, an `ArgumentError`
   was thrown.
-* `ByteVector` is now an alias of `Vector{UInt8}`, and `VecWriter` wraps a `Vector{UInt8}`.
+* `ByteVector` is deprecated in favor of `Vector{UInt8}`, and `VecWriter` wraps a `Vector{UInt8}`.
   `VecWriter(v::Vector{UInt8})` now appends to `v`, whereas previously, it took over the
   memory of `v` and emptied `v`.
 * The unused error kinds `PermissionDenied`, `NotFound`, `BrokenPipe`, `AlreadyExists`,
