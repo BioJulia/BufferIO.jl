@@ -116,58 +116,47 @@ end
 
     # Test with array
     arr = Vector{UInt8}(undef, 3)
-    n_read = unsafe_read_all!(io, arr, 3)
+    n_read = GC.@preserve arr unsafe_read_all!(io, pointer(arr), 3)
     @test n_read == 3
     @test arr == b"hel"
 
     # Test reading more than available
     arr2 = Vector{UInt8}(undef, 10)
-    n_read2 = unsafe_read_all!(io, arr2, 10)
+    n_read2 = GC.@preserve arr2 unsafe_read_all!(io, pointer(arr2), 10)
     @test n_read2 == 2  # Only "lo" remaining
     @test arr2[1:2] == b"lo"
 
     # Test with empty reader
     empty_io = GenericBufReader("")
     arr3 = Vector{UInt8}(undef, 5)
-    n_read3 = unsafe_read_all!(empty_io, arr3, 5)
+    n_read3 = GC.@preserve arr3 unsafe_read_all!(empty_io, pointer(arr3), 5)
     @test n_read3 == 0
 
     # Negative `nbytes` throws, without reading
     io4 = GenericBufReader("abcdef")
     arr4 = Vector{UInt8}(undef, 4)
-    @test_throws ArgumentError unsafe_read_all!(io4, arr4, -1)
-    @test unsafe_read_all!(io4, arr4, 4) == 4
+    GC.@preserve arr4 begin
+        @test_throws ArgumentError unsafe_read_all!(io4, pointer(arr4), -1)
+        @test unsafe_read_all!(io4, pointer(arr4), 4) == 4
+    end
     @test arr4 == b"abcd"
 
-    # Reading into a `Ref` of any type
+    # The reader's buffer is too short to hold the data, so it is read in chunks
     data = collect(UInt8, 1:16)
-    expected = only(reinterpret(UInt64, data[1:8]))
-    ref = Ref{UInt64}(0)
-    @test unsafe_read_all!(GenericBufReader(data), ref, 8) == 8
-    @test ref[] == expected
+    arr5 = zeros(UInt8, 16)
+    @test GC.@preserve(arr5, unsafe_read_all!(BoundedReader(data, 3), pointer(arr5), 16)) == 16
+    @test arr5 == data
 
-    # The reader's buffer is too short to hold the value, so it is read in chunks
-    ref = Ref{UInt64}(0)
-    @test unsafe_read_all!(BoundedReader(data, 3), ref, 8) == 8
-    @test ref[] == expected
+    # Stop at EOF, when reading in chunks
+    arr6 = zeros(UInt8, 4)
+    @test GC.@preserve(arr6, unsafe_read_all!(BoundedReader(b"ab", 1), pointer(arr6), 4)) == 2
+    @test arr6 == [0x61, 0x62, 0x00, 0x00]
 
-    ref = Ref{NTuple{3, UInt8}}((0x00, 0x00, 0x00))
-    @test unsafe_read_all!(GenericBufReader(b"abcd"), ref, 3) == 3
-    @test ref[] == (0x61, 0x62, 0x63)
-
-    # Stop at EOF
-    ref = Ref{UInt32}(0)
-    @test unsafe_read_all!(BoundedReader(b"ab", 1), ref, 4) == 2
-
-    # Reading into a Ref of a non-bitstype would overwrite e.g. a vector's pointer
-    @test_throws ArgumentError unsafe_read_all!(GenericBufReader(data), Ref(UInt8[]), 8)
-    @test_throws ArgumentError unsafe_read_all!(GenericBufReader(data), Ref("abc"), 3)
-
-    # A `Ptr{T}` is a `Ref{T}`, but may point to more than `sizeof(T)` bytes
+    # Only bytes are read, and only into a pointer
+    @test_throws MethodError unsafe_read_all!(GenericBufReader(data), Ref{UInt64}(0), 8)
+    @test_throws MethodError unsafe_read_all!(GenericBufReader(data), zeros(UInt8, 8), 8)
     floats = [0.0, 0.0]
-    src = collect(reinterpret(UInt8, [1.0, 2.0]))
-    @test GC.@preserve(floats, unsafe_read_all!(GenericBufReader(src), pointer(floats), 16)) == 16
-    @test floats == [1.0, 2.0]
+    @test_throws MethodError GC.@preserve(floats, unsafe_read_all!(GenericBufReader(data), pointer(floats), 16))
 
     # `Base.unsafe_read` is documented to copy `nbytes` bytes, whereas `unsafe_read_all!`
     # stops at EOF, so it is not overloaded

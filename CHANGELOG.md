@@ -29,9 +29,9 @@
 * `unsafe_read(::AbstractBufReader, ref, nbytes)` has been removed, because it silently
   stopped at EOF, whereas `Base.unsafe_read` is documented to copy `nbytes` bytes.
   The same functionality is now provided by the new function
-  `unsafe_read_all!(io, ref, nbytes::Int)`, the unsafe counterpart of `read_all!`.
-  It reads into a `Ref` of any bitstype, and throws an `ArgumentError` if `nbytes` is
-  negative. `unsafe_read(::IOReader, ...)` is unaffected.
+  `unsafe_read_all!(io, p::Ptr{UInt8}, nbytes::Int)`, the unsafe counterpart of
+  `read_all!`. It throws an `ArgumentError` if `nbytes` is negative.
+  `unsafe_read(::IOReader, ...)` is unaffected.
 * `isopen` is now a required method of `AbstractBufReader` and `AbstractBufWriter`,
   like `close`. It returns whether the IO is still usable, so types whose `close` does
   nothing, such as `CursorReader`, always return `true`. Subtypes defined outside BufferIO
