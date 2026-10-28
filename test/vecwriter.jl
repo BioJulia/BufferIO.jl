@@ -1,7 +1,3 @@
-@testset "ByteVector" begin
-    @test ByteVector === Vector{UInt8}
-end
-
 @testset "Wraps vector" begin
     v = collect(b"abc")
     vw = VecWriter(v)

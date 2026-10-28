@@ -62,12 +62,7 @@ function add_unused_space!(v::Vector{UInt8}, space::UInt)
     return nothing
 end
 
-"""
-    ByteVector
-
-Alias of `Vector{UInt8}`.
-"""
-const ByteVector = Vector{UInt8}
+Base.@deprecate_binding ByteVector Vector{UInt8}
 
 """
     VecWriter <: AbstractBufWriter
