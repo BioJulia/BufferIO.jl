@@ -546,12 +546,26 @@ end
         # Length buffer == 1 and ends at \r
         rdr = BoundedReader("abc\r", 1)
         io = IOBuffer()
-        @test_throws IOError copyline(io, rdr; keep = false)
+        copyline(io, rdr; keep = false)
+        @test take!(io) == b"abc\r"
+        @test eof(rdr)
 
         # Length buffer == 1 and \r\n
         rdr = BoundedReader("abc\r\nab", 1)
         io = IOBuffer()
-        @test_throws IOError copyline(io, rdr; keep = false)
+        copyline(io, rdr; keep = false)
+        @test take!(io) == b"abc"
+        copyline(io, rdr; keep = false)
+        @test take!(io) == b"ab"
+
+        # Length buffer == 1 and \r not followed by \n
+        rdr = BoundedReader("a\rb\r\r\r\n\rc", 1)
+        io = IOBuffer()
+        copyline(io, rdr; keep = false)
+        @test take!(io) == b"a\rb\r\r"
+        copyline(io, rdr; keep = false)
+        @test take!(io) == b"\rc"
+        @test eof(rdr)
 
         # Stream ends at \r, which is alone in the buffer when it's filled.
         # `BoundedReader` invalidates the old buffer on `fill_buffer`, so this

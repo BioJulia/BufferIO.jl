@@ -326,12 +326,6 @@ byte is present.
 
 If `keep` is `false`, as it is by default, the trailing `\\r\\n` (encoded as 0x0d 0x0a) or `\\n` will not be copied to `out`,
 but it will be consumed from `from`.
-
-This function may throw an `IOerror` with `IOErrorKinds.BufferTooShort`, if all the following occurs:
-* `keep` is `false`
-* The reader has a buffer size of 1
-* The reader cannot expand its buffer
-* The only byte in the buffer is `\\r` (0x0d).
 """
 function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader; keep::Bool = false)
     buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
@@ -346,8 +340,14 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                     n_filled = fill_buffer(from)
                     if n_filled === nothing
                         # If the buffer is 1 byte long and cannot be expanded, we would never
-                        # progress because we would always conservatively avoid writing anything, so error
-                        throw(IOError(IOErrorKinds.BufferTooShort))
+                        # progress by looking only at the buffer.
+                        copyline_lone_cr(out, from) && return out
+                        buffer = let
+                            b = get_nonempty_buffer(from)
+                            isnothing(b) && return out
+                            b
+                        end
+                        continue
                     elseif iszero(n_filled)
                         # If nothing was filled, the stream ended at \r. Then, we can write everything out.
                         # Get the buffer again, since `fill_buffer` may have invalidated it.
@@ -382,6 +382,24 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
         end
     end
     return out # unreachable
+end
+
+# The buffer of `from` is exactly one `\r` byte and cannot be expanded.
+# Consume the `\r` and peek at the next byte to decide whether it's part of a `\r\n`.
+# Return whether the line has ended.
+@noinline function copyline_lone_cr(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader)
+    @inbounds consume(from, 1)
+    buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    if buffer === nothing
+        write(out, 0x0d)
+        return true
+    elseif first(buffer) == 0x0a
+        @inbounds consume(from, 1)
+        return true
+    else
+        write(out, 0x0d)
+        return false
+    end
 end
 
 function Base.readline(x::AbstractBufReader; keep::Bool = false)
