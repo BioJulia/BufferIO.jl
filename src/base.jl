@@ -37,7 +37,7 @@ end
 """
     read(io::AbstractBufReader, nb::Integer)::Vector{UInt8}
 
-Read at exactly `nb` bytes from `io`, or until end of file, and return the
+Read bytes from `io` until either `nb` bytes are read or `io` is EOF, and return the
 bytes read as a `Vector{UInt8}`.
 
 This allocates a `Vector{UInt8}` of size `nb`, so do not pass a large
@@ -82,50 +82,6 @@ function Base.read(x::AbstractBufReader, nb::Integer)
 end
 
 """
-    unsafe_read(io::AbstractBufReader, ref, nbytes::UInt)::Int
-    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)::Int
-
-Copy `nbytes` from `io` into `ref`, returning the number of bytes copied.
-If `io` reached end of file, stop at EOF.
-`ref` is converted to a pointer using `cref = Base.cconvert(Ptr, ref)`, then
-`Base.unsafe_convert(Ptr{UInt8}, cref)`.
-
-Safety: The user must ensure that
-* The resulting pointer is valid, and points to at least `nbytes` of writeable memory.
-* `GC.@preserve`ing `cref` correctly pins `ref` in memory, i.e. the pointer will not become
-  invalid during the `GC.@preserve` block.
-"""
-function Base.unsafe_read(x::AbstractBufReader, ref, n::UInt)::Int
-    cref = Base.cconvert(Ptr, ref)
-    GC.@preserve cref begin
-        ptr = Base.unsafe_convert(Ptr{UInt8}, cref)::Ptr{UInt8}
-        result = unsafe_read(x, ptr, n)
-    end
-    return result
-end
-
-function Base.unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
-    buffer = get_buffer(x)
-    (length(buffer) % UInt) < n && return _unsafe_read(x, p, n)
-    GC.@preserve buffer unsafe_copyto!(p, pointer(buffer), n)
-    @inbounds consume(x, n % Int)
-    return n % Int
-end
-
-@noinline function _unsafe_read(x::AbstractBufReader, p::Ptr{UInt8}, n::UInt)::Int
-    p_start = p
-    while p < (p_start + n)
-        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && break
-        L = min(length(buf) % UInt, (p_start + n - p))
-        GC.@preserve buf unsafe_copyto!(p, pointer(buf), L)
-        p += L
-        @inbounds consume(x, L % Int)
-    end
-    return (p - p_start) % Int
-end
-
-"""
     readavailable(io::AbstractBufReader)::Vector{UInt8}
 
 Read the available bytes of `io` to a new `Vector{UInt8}`, except if zero bytes
@@ -158,38 +114,41 @@ function Base.readavailable(x::AbstractBufReader)
 end
 
 """
-    peek(io::AbstractBufReader)::UInt8
+    peek(io::AbstractBufReader, UInt8)::UInt8
 
-Get the next `UInt8` in `io`, without advancing `io`, or throw an `IOError`
-containing `IOErrorKinds.EOF` if `io` is EOF.
+Get the next `UInt8` in `io`, without advancing the IO,
+or throw an `IOError` containing `IOErrorKinds.EOF` if `io` is EOF.
 
 # Examples
 ```jldoctest
-julia> io = CursorReader("xyz");
+julia> io = CursorReader("x");
 
-julia> peek(io) === UInt8('x')
+julia> peek(io, UInt8) === UInt8('x')
 true
 
-julia> read(io) == b"xyz"
+julia> read(io, UInt8) == UInt8('x') # now EOF
 true
 
-julia> peek(io)
+julia> peek(io, UInt8)
 ERROR: End of file
 [...]
 ```
 """
-function Base.peek(x::AbstractBufReader, ::Type{UInt8})
-    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
-    isempty(buffer) && return _peek_empty(x, UInt8)
+function Base.peek(io::AbstractBufReader, ::Type{UInt8})
+    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+    if isempty(buffer)
+        return @noinline _peek(io)
+    end
     return @inbounds buffer[1]
 end
 
-@noinline function _peek_empty(x::AbstractBufReader, ::Type{UInt8})
-    fill_buffer(x)
-    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
-    isempty(buffer) && throw(IOError(IOErrorKinds.EOF))
-    return @inbounds buffer[1]
+function _peek(io::AbstractBufReader)
+    fill_buffer(io)
+    buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+    return isempty(buffer) ? throw(IOError(IOErrorKinds.EOF)) : @inbounds buffer[1]
 end
+
+Base.peek(io::AbstractBufReader) = peek(io, UInt8)
 
 """
     read(io::AbstractBufReader, UInt8)::UInt8
@@ -213,9 +172,9 @@ ERROR: End of file
 ```
 """
 function Base.read(x::AbstractBufReader, ::Type{UInt8})
-    res = peek(x, UInt8)
+    byte = peek(x)
     @inbounds consume(x, 1)
-    return res
+    return byte
 end
 
 # One based indexing
@@ -288,6 +247,48 @@ end
     return A
 end
 
+"""
+    unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Integer)::Nothing
+
+Copy exactly `nbytes` bytes from `io` to the memory pointed to by `p`.
+If `io` reaches EOF before `nbytes` bytes are copied, throw an `IOError` of kind
+`IOErrorKinds.EOF`. In that case, the bytes before EOF may already have been copied.
+
+Throw an `InexactError` if `nbytes` is negative.
+
+See also: [`unsafe_read_all!`](@ref), which stops at EOF instead of throwing.
+
+!!! warning
+    Safety: The caller is responsible for ensuring that `p` is valid, GC protected,
+    and points to at least `nbytes` bytes of writeable memory.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> v = zeros(UInt8, 4);
+
+julia> GC.@preserve v unsafe_read(reader, pointer(v), 4)
+
+julia> String(v)
+"abcd"
+
+julia> GC.@preserve v unsafe_read(reader, pointer(v), 4) # 2 bytes remaining
+ERROR: End of file
+[...]
+```
+"""
+function Base.unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::UInt)
+    n = Int(nbytes)::Int
+    unsafe_read_all!(io, p, n) == n || throw(IOError(IOErrorKinds.EOF))
+    return nothing
+end
+
+# Base's `IO` accepts any `Integer` for `nbytes`
+function Base.unsafe_read(io::AbstractBufReader, p::Ptr{UInt8}, nbytes::Integer)
+    return unsafe_read(io, p, UInt(nbytes)::UInt)
+end
+
 # delim is UInt8, if delimiter is not found, copies to end
 function Base.copyuntil(
         out::Union{IO, AbstractBufWriter},
@@ -325,12 +326,6 @@ byte is present.
 
 If `keep` is `false`, as it is by default, the trailing `\\r\\n` (encoded as 0x0d 0x0a) or `\\n` will not be copied to `out`,
 but it will be consumed from `from`.
-
-This function may throw an `IOerror` with `IOErrorKinds.BufferTooShort`, if all the following occurs:
-* `keep` is `false`
-* The reader has a buffer size of 1
-* The reader cannot expand its buffer
-* The only byte in the buffer is `\\r` (0x0d). 
 """
 function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader; keep::Bool = false)
     buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
@@ -345,11 +340,18 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                     n_filled = fill_buffer(from)
                     if n_filled === nothing
                         # If the buffer is 1 byte long and cannot be expanded, we would never
-                        # progress because we would always conservatively avoid writing anything, so error
-                        throw(IOError(IOErrorKinds.BufferTooShort))
+                        # progress by looking only at the buffer.
+                        copyline_lone_cr(out, from) && return out
+                        buffer = let
+                            b = get_nonempty_buffer(from)
+                            isnothing(b) && return out
+                            b
+                        end
+                        continue
                     elseif iszero(n_filled)
-                        # If nothing was filled, the stream ended at \r. Then, we can write everything out
-                        buffer
+                        # If nothing was filled, the stream ended at \r. Then, we can write everything out.
+                        # Get the buffer again, since `fill_buffer` may have invalidated it.
+                        get_buffer(from)
                     else
                         # Else, we need to fill in more bytes
                         buffer = get_nonempty_buffer(from)::ImmutableMemoryView{UInt8}
@@ -382,63 +384,62 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
     return out # unreachable
 end
 
-"""
-    skip(io::AbstractBufReader, n::Integer)::Int
-
-Read `n` bytes from `io`, or until EOF, whichever comes first, and discard
-the read bytes. Return the number of bytes read.
-
-This function is defined generically for `AbstractBufReader` by reading bytes,
-not by seeking. Subtypes of `AbstractBufReader` may implement this using seeking.
-In order to skip a generic `AbstractBufReader` and guarantee seeking is used,
-use `seek(io, position(io) + n)`.
-
-Throws an `ArgumentError` if `n < 0`.
-
-See also: [`skip_exact`](@ref)
-
-# Examples
-```jldoctest
-julia> reader = CursorReader("abcdefghij");
-
-julia> skip(reader, 5)
-5
-
-julia> read(reader, 3) |> String
-"fgh"
-
-julia> skip(reader, 10) # 2 bytes remaining
-2
-
-julia> eof(reader)
-true
-
-julia> skip(reader, 100)
-0
-```
-"""
-function Base.skip(io::AbstractBufReader, n::Integer)
-    n < 0 && throw(ArgumentError("Cannot skip negative amount"))
-    n = UInt(n)::UInt
-    remaining = n
-    while !iszero(remaining)
-        buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buffer) && break
-        mn = min(length(buffer) % UInt, remaining) % Int
-        @inbounds consume(io, mn)
-        remaining -= mn
+# The buffer of `from` is exactly one `\r` byte and cannot be expanded.
+# Consume the `\r` and peek at the next byte to decide whether it's part of a `\r\n`.
+# Return whether the line has ended.
+@noinline function copyline_lone_cr(out::Union{IO, AbstractBufWriter}, from::AbstractBufReader)
+    @inbounds consume(from, 1)
+    buffer = get_nonempty_buffer(from)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    if buffer === nothing
+        write(out, 0x0d)
+        return true
+    elseif first(buffer) == 0x0a
+        @inbounds consume(from, 1)
+        return true
+    else
+        write(out, 0x0d)
+        return false
     end
-    return (n - remaining) % Int
 end
 
+function Base.readline(x::AbstractBufReader; keep::Bool = false)
+    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer === nothing && return ""
+    pos = findfirst(==(0x0a), buffer)
+    pos === nothing && return readline_slowpath(x, keep)
+    return take_line!(x, buffer, pos, keep)
+end
+
+# Copy the first `n` bytes of `buffer`, which is the buffer of `x`, into a string,
+# and consume them.
+@inline function take_line!(x::AbstractBufReader, buffer::ImmutableMemoryView{UInt8}, n::Int, keep::Bool)
+    line = @inbounds buffer[1:n]
+    str = String(keep ? line : _chomp(line))
+    @inbounds consume(x, n)
+    return str
+end
+
+# The buffer of `x` is nonempty, and contains no newline.
+# Grow the buffer until it contains the line, so it can be copied into a string once.
+@noinline function readline_slowpath(x::AbstractBufReader, keep::Bool)
+    pos = buffer_until(x, 0x0a)
+    pos isa HitBufferLimit && return readline_accumulate(x, keep)
+    buffer = get_buffer(x)
+    # If no newline was found, the buffer holds the remaining data until EOF.
+    return take_line!(x, buffer, something(pos, length(buffer)), keep)
+end
+
+# The buffer of `x` is nonempty, contains no newline, and can't grow.
 # Different logic than `copyline`, because the destination vector is owned by
 # this function, and therefore we can better handle the case where a 1-byte buffer
 # ends with \r.
-function Base.readline(x::AbstractBufReader; keep::Bool = false)
-    v = UInt8[]
+function readline_accumulate(x::AbstractBufReader, keep::Bool)
+    buffer = get_buffer(x)
+    # `String(v)` takes ownership of the memory of `v` instead of copying it, also after
+    # `v` has grown. This requires `v` to start with nonempty memory, since an empty
+    # `StringVector` uses Base's shared empty memory, which is not owned by a string.
+    v = empty!(string_vector(length(buffer)))
     while true
-        buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        buffer === nothing && return String(v)
         pos = findfirst(==(0x0a), buffer)
         if pos === nothing
             append!(v, buffer)
@@ -448,6 +449,7 @@ function Base.readline(x::AbstractBufReader; keep::Bool = false)
             @inbounds consume(x, pos)
             break
         end
+        buffer = @something get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}} break
     end
     if !keep
         removed = false
@@ -465,28 +467,20 @@ end
 function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
     io = VecWriter()
     copyuntil(io, x, delim; keep)
-    return to_vector(io.vec)
+    return io.vec
 end
 
 """
-    unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
+    unsafe_write(io::AbstractBufWriter, p::Ptr{UInt8}, nbytes::Integer)::Int
 
-Write `nbytes` bytes from `ref` (converted to a pointer) to `io`,
-and return `Int(nbytes)`.
-If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.EOF)`.
+Write `nbytes` bytes from the memory pointed to by `p` to `io`, and return `Int(nbytes)`.
+If `io` does not have capacity to write more bytes, throw an `IOError(IOErrorKinds.WriterFull)`.
+In that case, some bytes may already have been written.
 
 !!! warning
-    Safety: If `ref` is a pointer, the caller is responsible for ensuring that the
-    pointer is valid, GC protected, and points to at least `nbytes` data of readable memory.
+    Safety: The caller is responsible for ensuring that `p` is valid, GC protected,
+    and points to at least `nbytes` bytes of readable memory.
 """
-function Base.unsafe_write(io::AbstractBufWriter, ref, nbytes::UInt)::Int
-    cval = Base.cconvert(Ptr{UInt8}, ref)
-    GC.@preserve cval begin
-        ptr = Base.unsafe_convert(Ptr{UInt8}, cval)::Ptr{UInt8}
-        return unsafe_write(io, ptr, nbytes)
-    end
-end
-
 function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
     buffer = get_buffer(io)::MutableMemoryView{UInt8}
     return if (length(buffer) % UInt) ≥ n_bytes
@@ -498,11 +492,16 @@ function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt
     end
 end
 
+# Base's `IO` accepts any `Integer` for `nbytes`
+function Base.unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::Integer)::Int
+    return unsafe_write(io, ptr, UInt(n_bytes)::UInt)
+end
+
 @noinline function _unsafe_write(io::AbstractBufWriter, ptr::Ptr{UInt8}, n_bytes::UInt)::Int
     remaining = n_bytes
     while !iszero(remaining)
         buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
-        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
+        isnothing(buffer) && throw(IOError(IOErrorKinds.WriterFull))
         isempty(buffer) && error("Invalid implementation of get_nonempty_buffer")
         mn = min(remaining, length(buffer) % UInt)
         GC.@preserve buffer unsafe_copyto!(pointer(buffer), ptr, mn)
@@ -513,24 +512,24 @@ end
     return n_bytes % Int
 end
 
-function Base.write(io::AbstractBufWriter, x::UInt8)
-    buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
-    isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
-    buffer[1] = x
-    @inbounds consume(io, 1)
-    return 1
+function Base.write(io::AbstractBufWriter, byte::UInt8)
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    if isempty(buffer)
+        return @noinline _write_slowpath(io, byte)
+    else
+        @inbounds buffer[1] = byte
+        @inbounds consume(io, 1)
+        return 1
+    end
 end
 
-Base.write(io::AbstractBufWriter, x::Bool) = write(io, reinterpret(UInt8, x))
-
-# N.B: At least two args to prevent a stackoverflow.
-function Base.write(io::AbstractBufWriter, x1, x2, xs...)
-    n_written = write(io, x1)
-    n_written += write(io, x2)
-    for i in xs
-        n_written += write(io, i)
-    end
-    return n_written
+function _write_slowpath(io::AbstractBufWriter, byte::UInt8)
+    grow_buffer(io)
+    buffer = get_buffer(io)::MutableMemoryView{UInt8}
+    isempty(buffer) && throw(IOError(IOErrorKinds.WriterFull))
+    @inbounds buffer[1] = byte
+    @inbounds consume(io, 1)
+    return 1
 end
 
 function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
@@ -538,85 +537,26 @@ function Base.write(io::AbstractBufWriter, s::Union{String, SubString{String}})
     # However, currently this would force the allocation of a new Memory object sharing
     # memory with `s`, so we can choose the more optimised route by using unsafe call instead.
     # We can change this if `ImmutableMemoryView(s)` no longer allocates in the future.
-    return unsafe_write(io, s, sizeof(s) % UInt)
+    return GC.@preserve s unsafe_write(io, pointer(s), sizeof(s) % UInt)
 end
 
-function Base.write(io::AbstractBufWriter, mem::MemoryView{<:PlainTypes})
-    return unsafe_write(io, mem, sizeof(mem) % UInt)
+function Base.write(io::AbstractBufWriter, mem::MemoryView{UInt8})
+    return GC.@preserve mem unsafe_write(io, pointer(mem), length(mem) % UInt)
 end
 
 function Base.write(
         io::AbstractBufWriter,
         mem::Base.CodeUnits{UInt8, <:Union{String, SubString{String}}},
     )
-    return unsafe_write(io, mem, sizeof(mem) % UInt)
+    return GC.@preserve mem unsafe_write(io, pointer(mem), sizeof(mem) % UInt)
 end
 
-function Base.write(io::AbstractBufWriter, mem::Base.CodeUnits{T}) where {T <: PlainTypes}
-    return write(io, MemoryView(mem))
-end
-
-function Base.write(io::AbstractBufWriter, x::PlainTypes)
-    # The bet here is that in 99% of cases, x will fit in the buffer on the first try.
-    # so if we outline get grow_buffer code, which usually is more complex than get_buffer,
-    # write itself will inline better
-    buffer = get_buffer(io)::MutableMemoryView{UInt8}
-    length(buffer) < sizeof(x) && return _write_grow_buffer(io, x, length(buffer))
-    return @inline _copy_bits(io, buffer, x)
-end
-
-@noinline function _write_grow_buffer(io::AbstractBufWriter, x::PlainTypes, bufferlen::Int)
-    while true
-        grow_buffer(io)
-        buffer = get_buffer(io)::MutableMemoryView{UInt8}
-        # If the buffer does not grow, we go to the real slow path where x is written
-        # one byte at a time
-        length(buffer) ≤ bufferlen && return _write_slowpath(io, x)
-        bufferlen = length(buffer)
-        length(buffer) ≥ sizeof(x) && return _copy_bits(io, buffer, x)
-    end
-    error("unreachable")
-end
-
-@inline function _copy_bits(io::AbstractBufWriter, buffer::MutableMemoryView{UInt8}, x::PlainTypes)
-    GC.@preserve buffer begin
-        p = Ptr{typeof(x)}(pointer(buffer))
-        unsafe_store!(p, x)
-    end
-    @inbounds consume(io, sizeof(x))
-    return sizeof(x)
-end
-
-@noinline function _write_slowpath(io::AbstractBufWriter, x::PlainTypes)
-    # We serialize as little endian, so byteswap if machine is big endian
-    u = as_unsigned(x)
-    n_written = 0
-    while n_written < sizeof(u)
-        buffer = get_nonempty_buffer(io)::Union{Nothing, MutableMemoryView{UInt8}}
-        isnothing(buffer) && throw(IOError(IOErrorKinds.EOF))
-        n_written_at_start = n_written
-        for i in eachindex(buffer)
-            buffer[i] = u % UInt8
-            u >>>= 8
-            n_written += 1
-            n_written == sizeof(u) && break
-        end
-        @inbounds consume(io, n_written - n_written_at_start)
-    end
-    return sizeof(u)
-end
-
-function Base.write(
-        io::AbstractBufWriter, v::Union{Memory{T}, Array{T}}
-    ) where {T <: PlainTypes}
-    return write(io, ImmutableMemoryView(v))
-end
+Base.write(io::AbstractBufWriter, v::Union{Memory{UInt8}, Array{UInt8}}) = write(io, ImmutableMemoryView(v))
 
 function Base.write(
         io::AbstractBufWriter,
-        v::SubArray{T, N, P, I, true},
+        v::SubArray{UInt8, N, P, I, true},
     ) where {
-        T <: PlainTypes,
         N,
         P,
         I <: Union{Tuple{AbstractUnitRange, Vararg{Any}}, Tuple{Vararg{Integer}}},
@@ -624,33 +564,123 @@ function Base.write(
     return write(io, ImmutableMemoryView(v))
 end
 
-function Base.write(io::AbstractBufWriter, c::Char)
-    u = bswap(reinterpret(UInt32, c))
-    n = 0
-    while true
-        n += write(io, u % UInt8)
-        u >>>= 8
-        iszero(u) && return n
-    end
-    return
+"""
+    close(io::Union{AbstractBufReader, AbstractBufWriter})
+
+Close `io`, releasing its underlying resources, such as a wrapped IO or a file handle.
+If `io` is a writer, `close` first flushes `io`, so no written data is lost.
+
+Closing is idempotent: Closing an `io` which is already closed does nothing.
+
+After `io` is closed, the behaviour of operations on `io` is unspecified, except
+that `close` and `isopen` behave as documented, and that no operation causes undefined
+behaviour. Depending on the implementation, operations on a closed `io` may throw an
+`IOError` of kind `ClosedIO`, or continue to work normally.
+
+See also: [`take_inner`](@ref)
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abc"));
+
+julia> close(reader); close(reader) # closing twice does nothing
+
+julia> isopen(reader)
+false
+
+julia> read(reader)
+ERROR: Unsupported operation on closed IO
+[...]
+```
+"""
+Base.close(::Union{AbstractBufReader, AbstractBufWriter})
+
+"""
+    isopen(io::Union{AbstractBufReader, AbstractBufWriter})::Bool
+
+Return whether `io` is still usable, that is, return `false` if and only if `io` has been
+made unusable by `close` or `take_inner`, or a similar function.
+
+For types that remain usable after `close`, such as [`VecWriter`](@ref), `isopen`
+should return `true`, even after `close` has been called on the io.
+Hence, `isopen(io)` does not generically tell whether `close(io)` has been called.
+
+# Examples
+```jldoctest
+julia> reader = BufReader(IOBuffer("abc"));
+
+julia> isopen(reader)
+true
+
+julia> close(reader); isopen(reader)
+false
+
+julia> cursor = CursorReader("abc");
+
+julia> close(cursor); isopen(cursor) # closing a CursorReader does nothing
+true
+```
+"""
+Base.isopen(::Union{AbstractBufReader, AbstractBufWriter})
+
+# Subtypes implement `seek(::T, ::Int)`. Like Base's `seek`, this accepts any `Integer`,
+# converting and forwarding it to the subtype's method.
+# The `Int` check stops a subtype without a `seek` method from recursing forever.
+function Base.seek(x::Union{AbstractBufReader, AbstractBufWriter}, offset::Integer)
+    offset isa Int && throw(MethodError(seek, (x, offset)))
+    return seek(x, Int(offset)::Int)
 end
 
-as_unsigned(x::PlainTypes) = as_unsigned(x, Val{sizeof(x)}())
-as_unsigned(x, ::Val{1}) = reinterpret(UInt8, x)
-as_unsigned(x, ::Val{2}) = reinterpret(UInt16, x)
-as_unsigned(x, ::Val{4}) = reinterpret(UInt32, x)
-as_unsigned(x, ::Val{8}) = reinterpret(UInt64, x)
-as_unsigned(x, ::Val{16}) = reinterpret(UInt128, x)
+"""
+    skip(io::AbstractBufReader, offset::Integer) -> io
+
+Seek `io` by `offset` relative to its current position, and return `io`.
+
+Like `relative_seek`, this requires `io` to support seeking, and seeking beyond either end
+of `io` throws an `IOError` of kind `BadSeek`.
+To advance a reader that may not support seeking, by reading and discarding bytes,
+use [`discard_all`](@ref) or [`discard_exact`](@ref).
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> skip(reader, 4); String(read(reader, 1))
+"e"
+
+julia> skip(reader, -3); String(read(reader))
+"cdef"
+
+julia> skip(reader, 1)
+ERROR: Invalid seek, possibly seek out of bounds
+[...]
+```
+"""
+function Base.skip(io::AbstractBufReader, offset::Integer)
+    relative_seek(io, Int(offset)::Int)
+    return io
+end
 
 Base.seekstart(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, 0)
-Base.seekend(x::AbstractBufReader) = seek(x, filesize(x))
+Base.seekend(x::Union{AbstractBufReader, AbstractBufWriter}) = seek(x, filesize(x))
 
-# The filesize of a writer does not include unflushed data, so we must flush before
-# computing the filesize, as `seek` does.
-function Base.seekend(x::AbstractBufWriter)
-    flush(x)
-    return seek(x, filesize(x))
+# Printing a single value is forwarded to `IOWriter`, which inherits Base's `print` and
+# `show` methods for `IO`.
+Base.print(io::AbstractBufWriter, x) = print(IOWriter(io), x)
+Base.print(io::AbstractBufWriter, s::Union{String, SubString{String}}) = (write(io, s); nothing)
+
+# The varargs methods must be defined here, because otherwise, Base's `print(xs...)`
+# would print the writer itself, and the arguments, to stdout.
+# Unlike Base's `print(::IO, xs...)`, this does not lock the IO in a `try`/`finally`
+# block, which is slow, and not needed because writers are not threadsafe anyway.
+# Recursion instead of a loop lets the compiler specialize on each argument.
+# `Vararg{Any, N}` forces specialization, which Julia otherwise does not do for
+# varargs that are only passed through to another function.
+Base.print(::AbstractBufWriter) = nothing
+
+@inline function Base.print(io::AbstractBufWriter, x, xs::Vararg{Any, N}) where {N}
+    print(io, x)
+    return print(io, xs...)
 end
 
-Base.print(io::AbstractBufWriter, x) = show(io, x)
-Base.print(io::AbstractBufWriter, s::Union{String, SubString{String}}) = (write(io, s); nothing)
+@inline Base.println(io::AbstractBufWriter, xs::Vararg{Any, N}) where {N} = print(io, xs..., "\n")

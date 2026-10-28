@@ -1,24 +1,99 @@
-@testset "ByteVector specifics" begin
-    v = ByteVector(undef, 10)
-    @test length(v) == 10
-    push!(v, 0x0a)
-    @test length(v) == 11
-    @test v[11] == 0x0a
-
-    copy!(v, b"abcdefghijk")
-    @test v == b"abcdefghijk"
-    resize!(v, 6)
+@testset "Wraps vector" begin
+    v = collect(b"abc")
+    vw = VecWriter(v)
+    @test vw.vec === v
+    write(vw, "def")
     @test v == b"abcdef"
-    vmem = BufferIO.get_memory(v)
-    resize!(v, 11)
-    @test length(v) == 11
-    @test BufferIO.get_memory(v) === vmem
-    resize!(v, 100)
-    @test length(v) == 100
-    @test BufferIO.get_memory(v) !== vmem
 
-    @test_throws ArgumentError resize!(v, -1)
-    @test_throws ArgumentError resize!(v, 2^50)
+    # Interleave mutations of the vector with writes
+    push!(v, UInt8('g'))
+    write(vw, "hi")
+    pushfirst!(v, UInt8('_'))
+    write(vw, 0x6a)
+    popfirst!(v)
+    popfirst!(v)
+    write(vw, "kl")
+    sizehint!(v, length(v); shrink = true)
+    write(vw, "m")
+    @test v == b"bcdefghijklm"
+    @test get_unflushed(vw) == v
+end
+
+@testset "Nonzero offset" begin
+    v = UInt8[0x01, 0x02]
+    pushfirst!(v, 0xff)
+    vw = VecWriter(v)
+    @test get_unflushed(vw) == [0xff, 0x01, 0x02]
+
+    # Element offset far into the memory
+    v = collect(UInt8, 1:100)
+    for _ in 1:90
+        popfirst!(v)
+    end
+    vw = VecWriter(v)
+    buffer = get_nonempty_buffer(vw, 50)
+    @test length(buffer) ≥ 50
+    fill!(buffer, 0xaa)
+    consume(vw, 50)
+    @test v == [collect(UInt8, 91:100); fill(0xaa, 50)]
+end
+
+@testset "Buffer growth" begin
+    vw = VecWriter(UInt8[])
+    for _ in 1:10
+        len = length(get_buffer(vw))
+        n_grown = grow_buffer(vw)
+        @test n_grown > 0
+        @test length(get_buffer(vw)) == len + n_grown
+        write(vw, UInt8(len % UInt8))
+    end
+
+    for min_size in [0, 1, 5, 100, 10_000]
+        vw = VecWriter()
+        @test length(get_nonempty_buffer(vw, min_size)) ≥ max(1, min_size)
+    end
+
+    # The two-arg method never returns `nothing`, and the compiler knows it
+    @test (@inferred get_nonempty_buffer(VecWriter(), 100)) isa MutableMemoryView{UInt8}
+
+    # Growing with a far offset moves the elements back to the start of the memory
+    v = collect(UInt8, 1:100)
+    for _ in 1:90
+        popfirst!(v)
+    end
+    vw = VecWriter(v)
+    len = length(get_buffer(vw))
+    n_grown = grow_buffer(vw)
+    @test n_grown > 0
+    @test length(get_buffer(vw)) == len + n_grown
+    @test v == 91:100
+end
+
+@testset "Consume" begin
+    vw = VecWriter()
+    n = length(get_buffer(vw))
+    @test_throws IOError consume(vw, -1)
+    @test_throws IOError consume(vw, n + 1)
+    consume(vw, n)
+    @test length(vw.vec) == n
+    @test isempty(get_buffer(vw))
+end
+
+@testset "takestring!" begin
+    v = collect(b"abc")
+    @test takestring!(v) == "abc"
+    @test isempty(v)
+
+    # The memory of the vector is reused by the string
+    vw = VecWriter()
+    write(vw, "abcdef")
+    p = pointer(vw.vec)
+    s = takestring!(vw)
+    @test s == "abcdef"
+    @test pointer(s) == p
+    @test isempty(vw.vec)
+    write(vw, "ghi")
+    @test takestring!(vw) == "ghi"
 end
 
 @testset "Construction" begin
@@ -40,7 +115,8 @@ end
     flush(vw)
     @test isopen(vw)
 
-    write(vw, htol(0x0102))
+    write(vw, 0x02)
+    write(vw, 0x01)
     @test get_unflushed(vw) == b"abc\2\1"
 
     # Test overallocation
@@ -74,11 +150,4 @@ end
     @test write(io, 0x61) == 1
     @test write(io, 0x63) == 1
     @test String(io.vec) == "\xaaac"
-end
-
-@testset "Nonzero offset" begin
-    v = UInt8[0x01, 0x02]
-    pushfirst!(v, 0xff)
-    vw = VecWriter(v)
-    @test get_unflushed(vw) == [0xff, 0x01, 0x02]
 end

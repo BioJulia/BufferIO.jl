@@ -16,8 +16,8 @@
     @test String(lines[3]) == "line3"
 end
 
-@testset "line_views with chomp=true (default)" begin
-    # Test default chomping behavior
+@testset "line_views with keep=false (default)" begin
+    # Test default behavior of stripping line endings
     io = GenericBufReader("hello\nworld\n")
     lines = collect(line_views(io))
     @test length(lines) == 2
@@ -26,14 +26,14 @@ end
 
     # Test with \r\n endings
     io2 = GenericBufReader("line1\r\nline2\r\n")
-    lines2 = collect(line_views(io2; chomp = true))
+    lines2 = collect(line_views(io2; keep = false))
     @test length(lines2) == 2
     @test String(lines2[1]) == "line1"
     @test String(lines2[2]) == "line2"
 
     # Test mixed line endings
     io3 = GenericBufReader("unix\nmac\rdos\r\nend")
-    lines3 = collect(line_views(io3; chomp = true))
+    lines3 = collect(line_views(io3; keep = false))
     @test length(lines3) == 3
     @test String(lines3[1]) == "unix"
     @test String(lines3[2]) == "mac\rdos"  # \r alone doesn't end line
@@ -77,13 +77,18 @@ end
     # Bounded buffer size
     # Normal case - works
     rdr = BoundedReader("abcd\nefg\r\n", 5)
-    it = line_views(rdr; chomp = false)
+    it = line_views(rdr; keep = true)
     @test first(iterate(it)) == b"abcd\n"
 
     # Buffer too short - does not work
     rdr = BoundedReader("abcd\nefg\r\n", 4)
-    it = line_views(rdr; chomp = false)
-    @test_throws ArgumentError iterate(it)
+    it = line_views(rdr; keep = true)
+    @test_throws IOError iterate(it)
+    try
+        iterate(it)
+    catch e
+        @test e.kind === IOErrorKinds.BufferTooShort
+    end
 end
 
 @testset "eachline basic functionality" begin
@@ -134,6 +139,20 @@ end
     io3 = GenericBufReader("a\n\nb")
     lines3 = collect(eachline(io3))
     @test lines3 == ["a", "", "b"]
+
+    # Lines longer than the buffer of a reader that can't grow its buffer
+    rdr = BoundedReader("abcdefgh\nij\r\nklmnopqrs", 3; max_fill = 3)
+    @test collect(eachline(rdr)) == ["abcdefgh", "ij", "klmnopqrs"]
+    @test eof(rdr)
+    rdr = BoundedReader("abcdefgh\nij\r\n", 3; max_fill = 3)
+    @test collect(eachline(rdr; keep = true)) == ["abcdefgh\n", "ij\r\n"]
+
+    # Each iteration consumes exactly one line, so the reader can be used afterwards
+    for (data, n) in [("abcdefgh\nij\nkl", 3), ("ab\ncdefgh\nij", 4), ("ab\ncd\nef", 16)]
+        rdr = BoundedReader(data, n; max_fill = n)
+        (line, _) = iterate(eachline(rdr))
+        @test line * "\n" * String(read(rdr)) == data
+    end
 end
 
 @testset "Binary data handling" begin
@@ -200,20 +219,20 @@ end
     @test lines == [b"abcde", b"def"]
 end
 
-@testset "line_views with MemoryView and chomp" begin
-    # Test default chomping behavior
+@testset "line_views with MemoryView and keep" begin
+    # Test default behavior of stripping line endings
     mem = MemoryView("hello\nworld\n")
     lines = collect(line_views(mem))
     @test String.(lines) == ["hello", "world"]
 
     # Test with \r\n endings
     mem2 = MemoryView("line1\r\nline2\r\n")
-    lines2 = collect(line_views(mem2; chomp = true))
+    lines2 = collect(line_views(mem2; keep = false))
     @test String.(lines2) == ["line1", "line2"]
 
-    # Test with chomp=false
+    # Test with keep=true
     mem3 = MemoryView(codeunits("a\nb\n"))
-    lines3 = collect(line_views(mem3; chomp = false))
+    lines3 = collect(line_views(mem3; keep = true))
     @test String.(lines3) == ["a\n", "b\n"]
 end
 

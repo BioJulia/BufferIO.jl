@@ -8,7 +8,7 @@
     # Test with custom buffer size
     io2 = IOBuffer("test")
     reader2 = BufReader(io2, 16)
-    @test length(reader2.ref.mem) == 16
+    @test length(BufferIO.get_memory(reader2)) == 16
 
     # Test invalid buffer sizes
     io3 = IOBuffer("test")
@@ -128,6 +128,13 @@ end
     # Test invalid seeks
     @test_throws IOError seek(reader, -1)
     @test_throws IOError seek(reader, 11)  # Beyond end
+
+    # Non-`Int` integers are accepted, including through an `IOReader`
+    @test seek(reader, Int32(3)) === reader
+    @test String(read(reader, 2)) == "34"
+    io_reader = IOReader(reader)
+    @test seek(io_reader, UInt8(7)) === io_reader
+    @test String(read(io_reader)) == "789"
 end
 
 function test_bad_relative_seek(io, delta)
@@ -217,6 +224,69 @@ end
     @test read(io) == b"abcdef"
 end
 
+@testset "get_nonempty_buffer with min_size" begin
+    # Grows the buffer in a single reallocation
+    reader = BufReader(IOBuffer("abcdefghijklmnop"), 4)
+    @test read(reader, 2) == b"ab"
+    @test get_buffer(reader) == b"cd"
+    buffer = get_nonempty_buffer(reader, 10)
+    @test length(buffer) ≥ 10
+    @test buffer[1:10] == b"cdefghijkl"
+    @test read(reader) == b"cdefghijklmnop"
+
+    # Moves the buffered bytes to the start of the memory if they fit
+    reader = BufReader(IOBuffer("abcdefghijklmnop"), 8)
+    @test read(reader, 6) == b"abcdef"
+    @test get_buffer(reader) == b"gh"
+    mem = BufferIO.get_memory(reader)
+    buffer = get_nonempty_buffer(reader, 5)
+    @test BufferIO.get_memory(reader) === mem
+    @test buffer == b"ghijklmn"
+    @test read(reader) == b"ghijklmnop"
+
+    # Returns the existing buffer if it is large enough
+    reader = BufReader(IOBuffer("abcdef"), 4)
+    fill_buffer(reader)
+    @test get_nonempty_buffer(reader, 3) == b"abcd"
+    @test get_nonempty_buffer(reader, 0) == b"abcd"
+    @test get_nonempty_buffer(reader, -5) == b"abcd"
+
+    # Nonpositive min_size fills an empty buffer
+    reader = BufReader(IOBuffer("abc"), 4)
+    @test get_nonempty_buffer(reader, 0) == b"abc"
+
+    # EOF before min_size bytes are buffered
+    reader = BufReader(IOBuffer("abcdef"), 4)
+    @test get_nonempty_buffer(reader, 7) === nothing
+    @test get_buffer(reader) == b"abcdef"
+    @test read(reader) == b"abcdef"
+    reader = BufReader(IOBuffer("abc"), 8)
+    @test get_nonempty_buffer(reader, 4) === nothing
+    @test read(reader) == b"abc"
+    @test get_nonempty_buffer(BufReader(IOBuffer()), 1) === nothing
+
+    # Closed reader
+    reader = BufReader(IOBuffer("abc"))
+    close(reader)
+    @test_throws IOError get_nonempty_buffer(reader, 1)
+
+    # Repeatedly requesting a buffer as large as the memory grows the memory,
+    # instead of moving almost all the buffered bytes on every call
+    data = [UInt8(i % 251) for i in 1:1000]
+    reader = BufReader(IOBuffer(data), 16)
+    ok = true
+    for i in 1:(length(data) - 15)
+        ok &= get_nonempty_buffer(reader, 16)[1:16] == data[i:(i + 15)]
+        consume(reader, 1)
+    end
+    @test ok
+    @test length(BufferIO.get_memory(reader)) > 16
+    @test get_nonempty_buffer(reader, 16) === nothing
+
+    reader = BufReader(IOBuffer("abc"))
+    @test (@inferred Nothing get_nonempty_buffer(reader, 2)) isa ImmutableMemoryView{UInt8}
+end
+
 @testset "Automatic closing" begin
     io = IOBuffer("hello, world!")
     try
@@ -259,7 +329,8 @@ end
             read,
             r -> read(r, 3),
             readline,
-            r -> skip(r, 2),
+            r -> discard_all(r, 2),
+            r -> skip(r, 1),
             r -> seek(r, 0),
             r -> seek(r, 6),
             r -> relative_seek(r, 1),
@@ -384,16 +455,16 @@ end
         reader = BufReader(open(path), length(data))
         @test fill_buffer(reader) == length(data)
         @test iszero(fill_buffer(reader))
-        @test length(reader.ref.mem) == length(data)
+        @test length(BufferIO.get_memory(reader)) == length(data)
         close(reader)
 
         # Default buffer size is larger for IOStream than for other IOs
         reader = BufReader(open(path))
-        @test length(reader.ref.mem) == 65536
+        @test length(BufferIO.get_memory(reader)) == 65536
         @test read(reader) == data
         close(reader)
-        @test BufReader(r -> length(r.ref.mem), open(path)) == 65536
-        @test length(BufReader(IOBuffer(data)).ref.mem) == 8192
+        @test BufReader(r -> length(BufferIO.get_memory(r)), open(path)) == 65536
+        @test length(BufferIO.get_memory(BufReader(IOBuffer(data)))) == 8192
 
         # Empty file
         empty_path, io = mktemp()
@@ -416,9 +487,9 @@ end
     reader = BufReader(IOBuffer(data), 10)
     @test fill_buffer(reader) == 10
     consume(reader, 8)
-    mem = reader.ref.mem
+    mem = BufferIO.get_memory(reader)
     @test fill_buffer(reader) == 5
-    @test reader.ref.mem === mem
+    @test BufferIO.get_memory(reader) === mem
     @test get_buffer(reader) == data[9:15]
     consume(reader, 5)
     @test reader.stop < length(mem)
@@ -432,16 +503,16 @@ end
     @test fill_buffer(reader) == 10
     consume(reader, 1)
     @test fill_buffer(reader) == 5
-    @test length(reader.ref.mem) > 10
+    @test length(BufferIO.get_memory(reader)) > 10
     @test get_buffer(reader) == data[2:15]
 
     # Full buffer at EOF is neither moved nor grown
     reader = BufReader(IOBuffer(data), 15)
     @test fill_buffer(reader) == 15
     consume(reader, 3)
-    mem = reader.ref.mem
+    mem = BufferIO.get_memory(reader)
     @test iszero(fill_buffer(reader))
-    @test reader.ref.mem === mem
+    @test BufferIO.get_memory(reader) === mem
     @test reader.start == 4
     @test get_buffer(reader) == data[4:15]
 
@@ -453,11 +524,11 @@ end
         result = UInt8[]
         n_moved = 0
         while true
-            mem = reader.ref.mem
+            mem = BufferIO.get_memory(reader)
             (start, n_buffered) = (reader.start, length(get_buffer(reader)))
             n_filled = fill_buffer(reader)
             # Bytes were moved within the same memory
-            if reader.ref.mem === mem && reader.start != start
+            if BufferIO.get_memory(reader) === mem && reader.start != start
                 n_moved += n_buffered
             end
             buffer = get_buffer(reader)

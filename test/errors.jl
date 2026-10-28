@@ -16,11 +16,3 @@ seekend(cursor)
     "End of file",
     peek(cursor)
 )
-
-bounded = BoundedReader("012345\r\n6789", 1)
-iobuf = IOBuffer()
-
-@test_throws(
-    "Buffer of reader or writer is too short for operation",
-    copyline(iobuf, bounded)
-)

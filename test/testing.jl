@@ -44,7 +44,7 @@
     @test readline(rdr) == "abc"
     @test read(rdr, String) == "def\r\nghi"
     # Line longer than max buffer size
-    @test_throws ArgumentError iterate(line_views(BoundedReader("abcdef\n", 4)))
+    @test_throws IOError iterate(line_views(BoundedReader("abcdef\n", 4)))
 
     # Views of the buffer are overwritten when they are invalidated
     data = collect(b"abcdef")
@@ -114,4 +114,80 @@ end
     @test isempty(get_buffer(w))
     @test_throws IOError grow_buffer(w)
     close(w)
+end
+
+@testset "ChunkedReader" begin
+    @test_throws ArgumentError ChunkedReader(["ab", "", "c"])
+    @test BufferIO.is_expandable(ChunkedReader)
+
+    # Each fill adds exactly one chunk, and the buffer grows without limit
+    rdr = ChunkedReader(["ab", "c", "def", collect(b"g")])
+    @test isempty(get_buffer(rdr))
+    @test fill_buffer(rdr) == 2
+    @test get_buffer(rdr) == b"ab"
+    @test fill_buffer(rdr) == 1
+    @test fill_buffer(rdr) == 3
+    @test get_buffer(rdr) == b"abcdef"
+
+    # Consume, and refill after consuming
+    @test_throws IOError consume(rdr, 7)
+    @test_throws IOError consume(rdr, -1)
+    consume(rdr, 5)
+    @test get_buffer(rdr) == b"f"
+    @test fill_buffer(rdr) == 1
+    @test get_buffer(rdr) == b"fg"
+    # EOF
+    @test fill_buffer(rdr) == 0
+    consume(rdr, 2)
+    @test fill_buffer(rdr) == 0
+    @test isempty(get_buffer(rdr))
+
+    # No chunks
+    rdr = ChunkedReader(String[])
+    @test fill_buffer(rdr) == 0
+    @test isempty(get_buffer(rdr))
+
+    # Generic functions
+    rdr = ChunkedReader(["abc\r", "\nde", "f\r\ng", "hi"])
+    @test readline(rdr) == "abc"
+    @test read(rdr, String) == "def\r\nghi"
+    # Lines longer than any chunk
+    @test collect(eachline(ChunkedReader(["ab", "c\nd", "ef", "\n"]))) == ["abc", "def"]
+
+    # Views of the buffer are overwritten when they are invalidated
+    chunks = [collect(b"ab"), collect(b"c")]
+    rdr = ChunkedReader(chunks)
+    fill_buffer(rdr)
+    buf = get_buffer(rdr)
+    @test fill_buffer(rdr) == 1
+    @test buf == map(~, b"ab")
+    @test get_buffer(rdr) == b"abc"
+    # Also when no bytes are filled
+    buf = get_buffer(rdr)
+    @test fill_buffer(rdr) == 0
+    @test buf == map(~, b"abc")
+    @test get_buffer(rdr) == b"abc"
+    buf = get_buffer(rdr)
+    consume(rdr, 1)
+    @test buf == map(~, b"abc")
+    @test get_buffer(rdr) == b"bc"
+    buf = get_buffer(rdr)
+    consume(rdr, 0)
+    @test buf == map(~, b"bc")
+    @test get_buffer(rdr) == b"bc"
+    buf = get_buffer(rdr)
+    close(rdr)
+    @test buf == map(~, b"bc")
+    # The chunks themselves are not modified
+    @test chunks == [b"ab", b"c"]
+
+    # Close
+    rdr = ChunkedReader(["ab", "c"])
+    fill_buffer(rdr)
+    @test isopen(rdr)
+    close(rdr)
+    @test !isopen(rdr)
+    @test isempty(get_buffer(rdr))
+    @test_throws IOError fill_buffer(rdr)
+    close(rdr)
 end

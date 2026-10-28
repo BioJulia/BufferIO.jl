@@ -107,13 +107,23 @@ end
 # Move the content of inner's buffer, which is nonempty and can't be grown, into the
 # own buffer, then add new bytes to the own buffer.
 @noinline function start_serving_own(io::ExpandReader)::Int
+    move_inner_to_own!(io, 1)
+    # Get more bytes - that was the whole point of the user calling `fill_buffer`
+    return add_bytes_to_own(io)
+end
+
+# Move the content of inner's buffer, which is nonempty and can't be grown, into the
+# own buffer, and start serving from it. The backing memory of the own buffer will
+# have room for at least `min_mem_size` bytes.
+function move_inner_to_own!(io::ExpandReader, min_mem_size::Int)
     inner_buffer = get_buffer(io.inner)::ImmutableMemoryView{UInt8}
     # Per fill_buffer's documentation, fill_buffer never returns nothing on an empty buffer
     isempty(inner_buffer) && throw_invalid_inner()
     n = length(inner_buffer)
     mem = MemoryViews.memory(io.buffer)
-    if length(mem) < n
-        mem = Memory{UInt8}(undef, overallocation_size(n % UInt))
+    mem_size = max(n, min_mem_size)
+    if length(mem) < mem_size
+        mem = Memory{UInt8}(undef, overallocation_size(mem_size % UInt))
     end
     buffer = MemoryView(mem)[1:n]
     copyto!(buffer, inner_buffer)
@@ -121,8 +131,7 @@ end
     io.buffer = buffer
     io.debt = 0
     io.serving_own = true
-    # Get more bytes - that was the whole point of the user calling `fill_buffer`
-    return add_bytes_to_own(io)
+    return nothing
 end
 
 @noinline function fill_buffer_own(io::ExpandReader)::Int
@@ -131,14 +140,8 @@ end
     # If the own buffer contains bytes inner's buffer does not, we must keep using it
     n_own > io.debt && return add_bytes_to_own(io)
 
-    # Else, all remaining bytes of own buffer are at the start of inner's buffer,
-    # after paying the part of the debt the user has consumed from own buffer.
-    # So we can switch back to serving inner's buffer.
-    consume(io.inner, io.debt - n_own)
-    io.debt = 0
-    io.serving_own = false
-    n_inner = length(get_buffer(io.inner)::ImmutableMemoryView{UInt8})
-    n_inner < n_own && throw_invalid_inner()
+    # Else, we can switch back to serving inner's buffer.
+    n_inner = switch_to_inner!(io)
     # If inner's buffer contains bytes beyond what the own buffer did, these bytes are
     # the newly filled bytes, and we don't need to fill inner.
     n_inner > n_own && return n_inner - n_own
@@ -146,10 +149,21 @@ end
     return n === nothing ? start_serving_own(io) : n
 end
 
-# Append bytes from inner to the own buffer, without consuming them from inner.
+# We don't copy all available bytes, only an amount proportional to the own buffer.
+# This makes sure that the number of copied bytes before we can switch back to inner's
+# buffer scales with the amount of bytes the user needs buffered, and not with the
+# size of inner's buffer.
+function add_bytes_to_own(io::ExpandReader)::Int
+    n_own = length(io.buffer)
+    return add_bytes_to_own(io, max(1, overallocation_size(n_own % UInt) - n_own))
+end
+
+# Append at most `n_max` bytes from inner to the own buffer, without consuming them from
+# inner, and return the number of bytes appended, which is zero only at EOF.
 # Must only be called when serving from own buffer, and when own buffer contains
 # bytes that inner's buffer does not. In particular, the own buffer is not empty.
-function add_bytes_to_own(io::ExpandReader)::Int
+# `n_max` must be positive.
+function add_bytes_to_own(io::ExpandReader, n_max::Int)::Int
     inner_buffer = get_buffer(io.inner)::ImmutableMemoryView{UInt8}
     length(inner_buffer) < io.debt && throw_invalid_inner()
     # If every byte of inner's buffer is already copied to own, we need inner to get more.
@@ -168,12 +182,8 @@ function add_bytes_to_own(io::ExpandReader)::Int
     end
     n_available = length(inner_buffer) - io.debt
     n_available < 1 && throw_invalid_inner()
-    # We don't copy all available bytes, only an amount proportional to the own buffer.
-    # This makes sure that the number of copied bytes before we can switch back to inner's
-    # buffer scales with the amount of bytes the user needs buffered, and not with the
-    # size of inner's buffer.
     n_own = length(io.buffer)
-    n_copy = min(n_available, max(1, overallocation_size(n_own % UInt) - n_own))
+    n_copy = min(n_available, n_max)
     start = reserve_own!(io, n_copy)
     stop = start + n_own - 1
     mem = MemoryView(MemoryViews.memory(io.buffer))
@@ -181,6 +191,44 @@ function add_bytes_to_own(io::ExpandReader)::Int
     io.buffer = mem[start:(stop + n_copy)]
     io.debt += n_copy
     return n_copy
+end
+
+# Called by the generic `get_nonempty_buffer(::AbstractBufReader, ::Int)`
+@noinline function get_nonempty_buffer_slowpath(
+        io::ExpandReader,
+        min_size::Int,
+        ::Int,
+    )::Union{Nothing, ImmutableMemoryView{UInt8}}
+    io.closed && throw_closed()
+    # When not serving own buffer, `io` and inner are at the same position, so inner can
+    # provide the buffer directly, possibly more efficiently. If inner is expandable, it
+    # never throws `BufferTooShort`, so we don't need to handle inner hitting its limit.
+    # An expandable inner's `fill_buffer` never returns `nothing`, so we never start serving
+    # own buffer, but we check `serving_own` anyway, so an inner with an incorrect
+    # `is_expandable` can't make us serve bytes from the wrong position.
+    if !io.serving_own && is_expandable(typeof(io.inner))
+        return get_nonempty_buffer(io.inner, min_size)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    end
+    # If inner's buffer contains all remaining bytes of the own buffer, switch back to inner
+    io.serving_own && length(io.buffer) ≤ io.debt && switch_to_inner!(io)
+    if !io.serving_own
+        buffer = get_buffer(io.inner)::ImmutableMemoryView{UInt8}
+        while length(buffer) < min_size
+            n = fill_buffer(io.inner)::Union{Int, Nothing}
+            n === nothing && break
+            iszero(n) && return nothing
+            buffer = get_buffer(io.inner)::ImmutableMemoryView{UInt8}
+        end
+        length(buffer) ≥ min_size && return buffer
+        move_inner_to_own!(io, min_size)
+    end
+    # Make room for `min_size` bytes in a single reallocation or move, so the loop below
+    # copies each byte from inner only once.
+    reserve_own!(io, min_size - length(io.buffer))
+    while length(io.buffer) < min_size
+        iszero(add_bytes_to_own(io, min_size - length(io.buffer))) && return nothing
+    end
+    return ImmutableMemoryView(io.buffer)
 end
 
 # Index in the backing memory of the first byte of the own buffer.
@@ -199,18 +247,43 @@ function reserve_own!(io::ExpandReader, n::Int)::Int
     n_own = length(io.buffer)
     start = own_start(io)
     start + n_own - 1 + n ≤ length(mem) && return start
-    if n_own + n ≤ length(mem)
+    return reserve_own_slowpath!(io, n, start)
+end
+
+@noinline function reserve_own_slowpath!(io::ExpandReader, n::Int, start::Int)::Int
+    mem = MemoryViews.memory(io.buffer)
+    n_own = length(io.buffer)
+    # Only move the own bytes if that frees at least as many bytes as it moves, like
+    # `fill_buffer(::BufReader)`, so the bytes moved are amortized by the bytes consumed.
+    # Else, if the user repeatedly consumed few bytes and requested `n` bytes of room,
+    # each call would move most of the own buffer to make room for a few new bytes.
+    if n_own + n ≤ length(mem) && start - 1 ≥ n_own
         # Moving the own bytes to the start of mem is enough.
         # This overwrites the consumed bytes before the own buffer, which therefore can no
         # longer be reached by seeking backwards in memory in `relative_seek`.
         copyto!(mem, 1, mem, start, n_own)
     else
-        new_mem = Memory{UInt8}(undef, overallocation_size((n_own + n) % UInt))
+        new_size = overallocation_size(max(n_own + n, length(mem)) % UInt)
+        new_mem = Memory{UInt8}(undef, new_size)
         copyto!(new_mem, 1, mem, start, n_own)
         mem = new_mem
     end
     io.buffer = MemoryView(mem)[1:n_own]
     return 1
+end
+
+# Switch back to serving inner's buffer, and return its length.
+# Must only be called when serving own buffer, and when the own buffer contains no bytes
+# inner's buffer does not, i.e. when `length(io.buffer) ≤ io.debt`. Then, all remaining
+# bytes of own buffer are at the start of inner's buffer, after paying the part of the
+# debt the user has consumed from own buffer.
+function switch_to_inner!(io::ExpandReader)::Int
+    n_own = length(io.buffer)
+    consume(io.inner, io.debt - n_own)
+    stop_serving_own!(io)
+    n_inner = length(get_buffer(io.inner)::ImmutableMemoryView{UInt8})
+    n_inner < n_own && throw_invalid_inner()
+    return n_inner
 end
 
 # Number of bytes consumed from inner, but not yet by the user.
@@ -237,9 +310,10 @@ end
 
 Close `io` and return its inner reader, without closing the inner reader.
 
-Any data buffered in `io` and not yet consumed is discarded, and the returned inner
-reader is positioned immediately after the consumed data.
-To keep the discarded data, copy it from `get_buffer(io)` before calling `take_inner`.
+Any data buffered in `io` is consumed, and the returned inner reader
+is positioned at the position of `io` after the consumption.
+To keep the data that would be consumed by `take_inner`, copy it from `get_buffer(io)`
+before calling `take_inner`.
 
 After this, all operations on `io` which would access the inner reader throw an `IOError`
 of kind `ClosedIO`, and `close(io)` does nothing.
@@ -256,7 +330,7 @@ julia> String(read(reader, 2))
 julia> kept = String(get_buffer(reader))
 "cd"
 
-julia> inner = take_inner(reader); # "cd" is discarded
+julia> inner = take_inner(reader); # "cd" is consumed
 
 julia> String(read(inner)) # inner continues right after `kept`
 "ef"
@@ -335,14 +409,14 @@ function relative_seek(io::ExpandReader, delta::Int)
 end
 
 """
-    drop_own(io::ExpandReader)::Union{Nothing, Memory}
+    drop_own(io::ExpandReader)::Union{Nothing, Memory{UInt8}}
 
 If the own buffer of `io` is in use or `io` is closed, return `nothing`.
 Else, drop the buffer from `io`, and return it.
 The returned memory may be empty, and is owned by the caller, i.e. `io` is
 guaranteed to not keep a reference to it.
 
-Since `ExpandReader`s allocates new buffers as needed, this function does not
+Since `ExpandReader`s allocate new buffers as needed, this function does not
 change the semantic behaviour of `io`, only its allocation patterns, and never
 puts `io` in an invalid state.
 It is intended to free memory if extra buffering is only transiently needed.

@@ -42,8 +42,8 @@ end
 Base.read(x::IOReader, ::Type{String}) = read(x.x, String)
 
 function Base.unsafe_read(x::IOReader, p::Ptr{UInt8}, n::UInt)
-    n_read = unsafe_read(x.x, p, n)
-    (n_read % UInt) == n || throw(EOFError())
+    n_read = unsafe_read_all!(x.x, p, Int(n)::Int)
+    n_read == n || throw(EOFError())
     return nothing
 end
 

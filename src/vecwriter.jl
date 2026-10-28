@@ -1,172 +1,74 @@
-"""
-    ByteVector <: DenseVector{UInt8}
+################################
+# Internals of Vector{UInt8}
+################################
+# VecWriter writes directly into the unused memory after the last element of its
+# `Vector{UInt8}`, and then extends the vector's length to cover the written bytes.
+# Base has no public API for this, so this section relies on implementation details
+# of `Vector`. All such use is confined to this section: Outside it, vectors are only
+# accessed through public Base API, or through the functions defined here.
 
-A re-implementation of `Vector{UInt8}` that only supports a subset of its methods.
-In future minor releases, this may change to be an alias of `Vector{UInt8}`.
-
-Note that `String(x::ByteVector)` will truncate `x`, to mirror the behaviour of
-`String(::Vector{UInt8})`. It is recommended to use `takestring!` instead.
-
-All Base methods implemented for `ByteVector` is guaranteed to have the same semantics
-as those for `Vector`. Futhermore, `ByteVector` supports:
-* `takestring!(::ByteVector)` even on Julia < 1.13, whereas `takestring!(::Vector{UInt8})`
-  is only defined from Julia 1.13 onwards.
-"""
-mutable struct ByteVector <: DenseVector{UInt8}
-    ref::MemoryRef{UInt8}
-    len::Int
-
-    global function unsafe_from_parts(ref::MemoryRef{UInt8}, len::Int)
-        return new(ref, len)
-    end
+# Fail loudly at load time if Julia changes the layout of `Vector`,
+# instead of silently corrupting memory.
+if fieldnames(Vector{UInt8}) != (:ref, :size) ||
+        fieldtypes(Vector{UInt8}) != (MemoryRef{UInt8}, Tuple{Int})
+    error("BufferIO does not support this Julia version, because the layout of `Vector` changed")
 end
 
-function ByteVector()
-    return unsafe_from_parts(memoryref(Memory{UInt8}()), 0)
-end
-
-function ByteVector(::UndefInitializer, len::Int)
-    return unsafe_from_parts(memoryref(Memory{UInt8}(undef, len)), len)
-end
-
-@inline function _takestring!(v::ByteVector)
-    s = GC.@preserve v unsafe_string(pointer(v), length(v))
-    # We defensively truncate here and reallocate the memory.
-    # Currently this is inefficient, but I want to be able to do zero-copy string creation
-    # in the future, and that will only be doable without breakage by reallocating the memory.
-    empty!(v)
-    v.ref = memoryref(Memory{UInt8}()) # note: a zero-sized memory usually does not allocate
-    return s
-end
-
-# This is for forward compatibility so we can switch in Vector{UInt8} in the future.
-Base.String(v::ByteVector) = _takestring!(v)
-
-@static if hasmethod(parent, Tuple{MemoryRef})
-    get_memory(v::ByteVector) = parent(v.ref)
+@static if VERSION ≥ v"1.12.0-DEV.966"
+    get_memory(ref::MemoryRef{UInt8}) = parent(ref)
 else
-    get_memory(v::ByteVector) = v.ref.mem
+    get_memory(ref::MemoryRef{UInt8}) = ref.mem
 end
 
-Base.size(x::ByteVector) = (x.len,)
-Base.length(x::ByteVector) = x.len
-
-Base.empty!(x::ByteVector) = (x.len = 0; x)
-
-function Base.resize!(x::ByteVector, n::Integer)
-    n = Int(n)::Int
-    if (n % UInt) > UInt(2)^48
-        throw(ArgumentError("New length must be in 0:2^48"))
-    end
-    if n > length(get_memory(x))
-        memsize = overallocation_size(n % UInt)
-        newmem = Memory{UInt8}(undef, memsize)
-        unsafe_copyto!(MemoryView(newmem), MemoryView(x))
-        x.ref = memoryref(newmem)
-        x.len = n
-    end
-    x.len = n
-    return x
-end
-
-function Base.getindex(v::ByteVector, i::Integer)
-    i = Int(i)::Int
-    @boundscheck checkbounds(v, i)
-    ref = @inbounds memoryref(v.ref, i)
-    return @inbounds ref[]
-end
-
-function Base.setindex!(v::ByteVector, x, i::Integer)
-    @boundscheck checkbounds(v, i)
-    xT = convert(UInt8, x)::UInt8
-    ref = @inbounds memoryref(v.ref, i)
-    @inbounds ref[] = xT
-    return v
-end
-
-function Base.iterate(x::ByteVector, i::Int = 1)
-    ((i - 1) % UInt) < (length(x) % UInt) || return nothing
-    return (@inbounds x[i], i + 1)
-end
-
-function Base.push!(x::ByteVector, u::UInt8)
-    ensure_unused_space!(x, UInt(1))
-    xlen = x.len + 1
-    x.len = xlen
-    @inbounds x[xlen] = u
-    return x
-end
-
-function Base.append!(x::ByteVector, mem::MemoryView{UInt8})
-    ensure_unused_space!(x, length(mem) % UInt)
-    start_index = memindex(x.ref) + x.len
-    dst = @inbounds MemoryView(get_memory(x))[start_index:end]
-    @inbounds copyto!(dst, mem)
-    x.len += length(mem)
-    return x
-end
-
-Base.pointer(x::ByteVector) = Ptr{UInt8}(pointer(x.ref))
-
-Base.sizeof(x::ByteVector) = length(x)
-
-function MemoryViews.MemoryView(v::ByteVector)
-    return MemoryViews.unsafe_from_parts(v.ref, v.len)
-end
-
-Base.write(io::AbstractBufWriter, v::ByteVector) = write(io, MemoryView(v))
-
-function Base.Vector(v::ByteVector)
-    result = Vector{UInt8}(undef, length(v))
-    unsafe_copyto!(MemoryView(result), MemoryView(v))
-    return result
-end
-
-# This internal function creates a Vector from a ByteVector,
-# reusing the memory. If ByteVector is ever turned into an
-# alias of Vector{UInt8}, this should be the identity function
-# TODO: Use Base.wrap once it stabilizes,
-# see https://github.com/JuliaLang/julia/issues/58729
-function to_vector(v::ByteVector)::Vector{UInt8}
-    return GC.@preserve v unsafe_wrap(Array, pointer(v), length(v))
-end
-
-@static if isdefined(Base, :memoryindex)
-    memindex(x::MemoryRef) = Base.memoryindex(x)
+# One-based index of `ref` into its memory
+@static if VERSION ≥ v"1.13.0-DEV.1289"
+    memindex(ref::MemoryRef{UInt8}) = Base.memoryindex(ref)
 else
-    memindex(x::MemoryRef) = Core.memoryrefoffset(x)
+    memindex(ref::MemoryRef{UInt8}) = Core.memoryrefoffset(ref)
 end
 
-# If C = Current capacity (get_unflushed + get_buffer)
-# Then makes sure new capacity is overallocation(C + additional).
-# Do this by zeroing offset and, if necessary, reallocating memory
-function add_space_with_overallocation!(vec::ByteVector, additional::UInt)
-    current_mem = get_memory(vec)
-    new_size = overallocation_size(capacity(vec) % UInt + additional)
-    new_mem = if length(current_mem) ≥ new_size
-        current_mem
-    else
-        Memory{UInt8}(undef, new_size)
-    end
-    @inbounds copyto!(@inbounds(MemoryView(new_mem)[1:length(vec)]), MemoryView(vec))
-    vec.ref = memoryref(new_mem)
+# The vector's elements are stored in `get_memory(ref)`, starting at `memindex(ref)`
+memory_ref(v::Vector{UInt8}) = getfield(v, :ref)
+
+# Set the length of `v` without initializing or reallocating memory.
+# Callers must ensure `n` is in `0:(length(v) + unused_space(v))`.
+unsafe_set_length!(v::Vector{UInt8}, n::Int) = setfield!(v, :size, (n,))
+
+# A vector whose memory is owned by a `String`, such that `String(v)` can take ownership
+# of the memory instead of copying it. Base keeps this property when the vector grows.
+string_vector(len::Int) = Base.StringVector(len)
+
+################################
+
+get_memory(v::Vector{UInt8}) = get_memory(memory_ref(v))
+
+first_unused_memindex(v::Vector{UInt8}) = memindex(memory_ref(v)) + length(v)
+
+unused_space(v::Vector{UInt8}) = length(get_memory(v)) - first_unused_memindex(v) + 1
+
+# Ensure unused space is at least `space` bytes. Will overallocate
+function ensure_unused_space!(v::Vector{UInt8}, space::UInt)
+    unused_space(v) % UInt ≥ space && return nothing
+    return @noinline add_unused_space!(v, space)
+end
+
+# N.B: `sizehint!` is not used, since it does not guarantee unused space
+# if the vector has a nonzero offset into its memory.
+function add_unused_space!(v::Vector{UInt8}, space::UInt)
+    len = length(v)
+    # Growing reallocates (with overallocation), or moves the elements to the start of the memory
+    resize!(v, len + space)
+    unsafe_set_length!(v, len)
     return nothing
 end
 
-# Ensure unused space is at least `space` bytes. Will overallocate
-function ensure_unused_space!(v::ByteVector, space::UInt)
-    us = unused_space(v)
-    us % UInt ≥ space && return nothing
-    space_to_add = space - us
-    return @noinline add_space_with_overallocation!(v, space_to_add)
-end
-
+Base.@deprecate_binding ByteVector Vector{UInt8}
 
 """
     VecWriter <: AbstractBufWriter
 
-A writer backed by a [`ByteVector`](@ref).
-Read the (public) property `.vec` to get the vector back.
+A writer that appends to a `Vector{UInt8}`, which is stored in the (public)
+property `.vec`.
 
 This type is useful as an efficient string builder through `takestring!(io)`.
 
@@ -175,19 +77,12 @@ Functions `flush` and `close` do not affect the writer.
 Mutating `io` will mutate `vec` and vice versa. Neither `vec` nor `io` will
 be invalidated by mutating the other, but doing so may affect the
 implicit (non-semantic) behaviour (e.g. memory reallocations or efficiency) of the other.
-For example, repeated and interleaved `push!(vec)` and `write(io, x)`
-may be less efficient, if one operation has memory allocation patterns
-that is suboptimal for the other operation.
+Mutating `vec` invalidates buffers previously obtained from `io` with e.g. `get_buffer`.
 
 Create with one of the following constructors:
-* `VecWriter([vec::Vector{UInt8}])`
-* `VecWriter(undef, ::Int)`
-* `VecWriter(::ByteVector)`
-
-Note that, currently, when constructing from a `Vector{UInt8}`,
-the vector is invalidated and the `VecWriter` and its wrapped `ByteVector`
-take shared control of the underlying memory.
-This restriction may be lifted in the future.
+* `VecWriter()`
+* `VecWriter(undef, n::Int)`: Create an empty vector with space for at least `n` bytes
+* `VecWriter(vec::Vector{UInt8})`: Append to `vec`, which is not copied.
 
 A VecWriter has no notion of `filesize`, and cannot be `seek`ed. Instead, resize
 the underlying vector `io.vec`.
@@ -195,19 +90,26 @@ the underlying vector `io.vec`.
 ```jldoctest
 julia> vw = VecWriter();
 
-julia> write(vw, "Hello, world!", 0xe1fa)
-15
+julia> write(vw, "Hello, world!")
+13
 
-julia> append!(vw.vec, b"More data");
+julia> append!(vw.vec, b" More data");
 
-julia> String(vw.vec)
-"Hello, world!\\xfa\\xe1More data"
+julia> takestring!(vw)
+"Hello, world! More data"
+
+julia> v = collect(b"abc");
+
+julia> write(VecWriter(v), "def");
+
+julia> String(v)
+"abcdef"
 ```
 """
 struct VecWriter <: AbstractBufWriter
-    vec::ByteVector
+    vec::Vector{UInt8}
 
-    VecWriter(v::ByteVector) = new(v)
+    VecWriter(v::Vector{UInt8}) = new(v)
 end
 
 const DEFAULT_VECWRITER_SIZE = 32
@@ -215,22 +117,7 @@ const DEFAULT_VECWRITER_SIZE = 32
 VecWriter() = VecWriter(undef, DEFAULT_VECWRITER_SIZE)
 
 function VecWriter(::UndefInitializer, len::Int)
-    return VecWriter(empty!(ByteVector(undef, len)))
-end
-
-function VecWriter(v::Vector{UInt8})
-    ref = Base.cconvert(Ptr, v)
-    bytevec = unsafe_from_parts(ref, length(v))
-    # Empty vector and replace its memory. This is a safety
-    # mechanism, to ensure caller doesn't mutate the memory
-    # after construction.
-    # TODO: This is inefficient. It also violates the design
-    # that VecWriter is supposed to mutate the input vector.
-    # The true solution to this is to somehow use Vector
-    # instead of my home-baked ByteVector
-    empty!(v)
-    sizehint!(v, 0; shrink = true)
-    return VecWriter(bytevec)
+    return VecWriter(empty!(string_vector(len)))
 end
 
 function get_buffer(x::VecWriter)
@@ -238,56 +125,9 @@ function get_buffer(x::VecWriter)
     return @inbounds MemoryView(get_memory(vec))[first_unused_memindex(vec):end]
 end
 
-# Note: memoryrefoffset is 1-based despite the name
-first_unused_memindex(v::ByteVector) = (length(v) + memindex(v.ref))
-
-unused_space(v::ByteVector) = length(get_memory(v)) - first_unused_memindex(v) + 1
-
-capacity(v::ByteVector) = length(get_memory(v)) - memindex(v.ref) + 1
-
-"""
-    get_nonempty_buffer(
-        io::AbstractBufWriter, min_size::Int
-    )::Union{Nothing, MutableMemoryView{UInt8}}
-
-Get a buffer of at least size `max(min_size, 1)`, or `nothing` if that is
-not possible.
-
-This method is optionally implemented for subtypes of `AbstractBufWriter`,
-and is typically only implemented for types which do not flush their data to an
-underlying IO, such that there is no memory savings by writing in smaller
-chunks.
-
-!!! warning
-    Use of this method may cause excessive buffering without flushing,
-    which is less memory efficient than calling the one-argument method
-    and flushing in a loop.
-
-# Examples
-```jldoctest
-julia> function write_int_le(writer::AbstractBufWriter, int::Int64)
-           buf = get_nonempty_buffer(writer, sizeof(Int64))::Union{Nothing, MutableMemoryView{UInt8}}
-           isnothing(buf) && throw(IOError(IOErrorKinds.BufferTooShort))
-           length(buf) < sizeof(Int64) && error("Bad implementation of get_nonempty_buffer")
-           GC.@preserve buf unsafe_store!(Ptr{Int64}(pointer(buf)), htol(int))
-           @inbounds consume(writer, sizeof(Int64))
-           return sizeof(Int64)
-       end;
-
-julia> v = VecWriter(); write_int_le(v, Int64(515))
-8
-
-julia> String(v.vec)
-"\\x03\\x02\\0\\0\\0\\0\\0\\0"
-```
-"""
 function get_nonempty_buffer(x::VecWriter, min_size::Int)
     ensure_unused_space!(x.vec, max(min_size, 1) % UInt)
-    mem = get_memory(x.vec)
-    fst = first_unused_memindex(x.vec)
-    memref = @inbounds memoryref(mem, fst)
-    len = length(mem) - fst + 1
-    return MemoryViews.unsafe_from_parts(memref, len)
+    return get_buffer(x)
 end
 
 get_nonempty_buffer(x::VecWriter) = get_nonempty_buffer(x, 1)
@@ -300,28 +140,19 @@ function consume(x::VecWriter, n::Int)
         # Casting to unsigned handles negative n
         (n % UInt) > (unused_space(vec) % UInt) && throw(IOError(IOErrorKinds.ConsumeBufferError))
     end
-    veclen = length(vec)
-    vec.len = veclen + n
+    unsafe_set_length!(vec, length(vec) + n)
     return nothing
 end
 
 function grow_buffer(io::VecWriter)
-    initial_capacity = capacity(io.vec)
-    @inline add_space_with_overallocation!(io.vec, UInt(1))
-    return capacity(io.vec) - initial_capacity
+    initial_space = unused_space(io.vec)
+    add_unused_space!(io.vec, (initial_space + 1) % UInt)
+    return unused_space(io.vec) - initial_space
 end
 
 Base.close(::VecWriter) = nothing
 Base.isopen(::VecWriter) = true
 Base.flush(::VecWriter) = nothing
-
-if isdefined(Base, :takestring!)
-    Base.takestring!(io::VecWriter) = _takestring!(io.vec)
-    Base.takestring!(v::ByteVector) = _takestring!(v)
-else
-    takestring!(io::VecWriter) = _takestring!(io.vec)
-    takestring!(v::ByteVector) = _takestring!(v)
-end
 
 ## Optimised write implementations
 Base.write(io::VecWriter, x::UInt8) = (push!(io.vec, x); 1)
@@ -334,12 +165,10 @@ function Base.unsafe_write(io::VecWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
     return n_bytes % Int
 end
 
-function Base.write(io::VecWriter, x::PlainTypes)
-    buffer = get_nonempty_buffer(io, sizeof(x))
-    GC.@preserve buffer begin
-        p = Ptr{typeof(x)}(pointer(buffer))
-        unsafe_store!(p, x)
-    end
-    @inbounds consume(io, sizeof(x))
-    return sizeof(x)
+@static if VERSION ≥ v"1.13.0-DEV.611"
+    Base.takestring!(io::VecWriter) = takestring!(io.vec)
+else
+    takestring!(io::VecWriter) = String(io.vec)
+    # Base defines this method from Julia 1.13
+    takestring!(v::Vector{UInt8}) = String(v)
 end

@@ -91,8 +91,7 @@ end
 Base.close(::CursorReader) = nothing
 Base.isopen(::CursorReader) = true
 
-function Base.seek(x::CursorReader, offset::Integer)
-    offset = Int(offset)::Int
+function Base.seek(x::CursorReader, offset::Int)
     in(offset, 0:filesize(x)) || throw(IOError(IOErrorKinds.BadSeek))
     x.offset = offset
     return x
