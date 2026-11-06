@@ -1,3 +1,8 @@
+# 0.3.1
+## New features
+* Added `LineWriter`, a `Base.IO` which automatically flushes when a newline byte
+  is written to it. This is used for line-oritented text output, such as log files.
+
 # 0.3.0
 ## Breaking changes
 * This release has removed reading and writing of any other primitive type than UInt8,

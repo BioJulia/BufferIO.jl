@@ -17,6 +17,7 @@ export AbstractBufReader,
     ExpandReader,
     IOError,
     IOErrorKinds,
+    LineWriter,
     get_buffer,
     get_unflushed,
     get_nonempty_buffer,
@@ -309,6 +310,10 @@ function fill_buffer end
 
 Remove the first `n` bytes of the buffer of `io`.
 Consumed bytes will not be returned by future calls to `get_buffer`.
+
+Calling this function must not perform I/O, but should only advance the position
+inside the buffer. I/O is done by `fill_buffer` (readers), or `grow_buffer` or
+`flush` (writers).
 
 If n is negative, or larger than the current buffer size,
 throw an `IOError` with `ConsumeBufferError` kind.
@@ -869,6 +874,7 @@ include("ioreader.jl")
 include("iowriter.jl")
 include("vecwriter.jl")
 include("expander.jl")
+include("linewriter.jl")
 include("testing.jl")
 
 end # module BufferIO
