@@ -1,3 +1,7 @@
+const ContiguousByteSubArray{N, P} = SubArray{UInt8, N, P, I, true} where {
+    I <: Union{Tuple{AbstractUnitRange, Vararg{Any}}, Tuple{Vararg{Integer}}},
+}
+
 Base.bytesavailable(x::AbstractBufReader) = length(get_buffer(x))
 
 Base.eof(x::AbstractBufReader) = isnothing(get_nonempty_buffer(x))
@@ -553,14 +557,7 @@ end
 
 Base.write(io::AbstractBufWriter, v::Union{Memory{UInt8}, Array{UInt8}}) = write(io, ImmutableMemoryView(v))
 
-function Base.write(
-        io::AbstractBufWriter,
-        v::SubArray{UInt8, N, P, I, true},
-    ) where {
-        N,
-        P,
-        I <: Union{Tuple{AbstractUnitRange, Vararg{Any}}, Tuple{Vararg{Integer}}},
-    }
+function Base.write(io::AbstractBufWriter, v::ContiguousByteSubArray)
     return write(io, ImmutableMemoryView(v))
 end
 

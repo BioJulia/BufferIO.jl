@@ -27,6 +27,11 @@ IOReader
 IOWriter
 ```
 
+## LineWriter
+```@docs; canonical=false
+LineWriter
+```
+
 ## CursorReader
 ```@docs; canonical=false
 CursorReader

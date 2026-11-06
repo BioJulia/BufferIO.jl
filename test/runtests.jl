@@ -45,6 +45,10 @@ end
     include("iowriter.jl")
 end
 
+@testset "LineWriter" begin
+    include("linewriter.jl")
+end
+
 @testset "ExpandReader" begin
     include("expander.jl")
 end
