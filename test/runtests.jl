@@ -2,6 +2,7 @@ using BufferIO
 using Test
 using MemoryViews
 using BufferIO.Testing: BoundedReader, BoundedWriter, ChunkedReader
+using Aqua: Aqua
 
 include("generic_types.jl")
 
@@ -51,4 +52,8 @@ end
 
 @testset "Testing" begin
     include("testing.jl")
+end
+
+@testset "Aqua" begin
+    Aqua.test_all(BufferIO)
 end

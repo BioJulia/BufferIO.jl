@@ -54,18 +54,12 @@ module IOErrorKinds
     The integral value of these enums are subject to change in minor versions.
 
     Current errors:
-    * `ConsumeBufferError`: Occurs when calling `consume` with a negative amount of bytes,
-      or with more bytes than `length(get_buffer(io))`
-    * `EOF`: Occurs when trying a reading operation on a file that has reached end-of-file
-    * `BufferTooShort`: Thrown by various functions that require a minimum buffer size, which
-      the `io` cannot provide. This should only be thrown if the buffer is unable to grow to
-      the required size, and not if e.g. the buffer does not expand because the io is EOF.
-    * `WriterFull`: Occurs when a writer cannot make room for more data, i.e. when
-      `grow_buffer` returns zero, such that a write operation cannot complete.
-      If a writer can make room, but not a contiguous buffer of a required minimum size,
-      `BufferTooShort` is thrown instead.
-    * `BadSeek`: An out-of-bounds seek operation was attempted
-    * `ClosedIO`: Indicates an operation was done on a closed IO.
+    * [`IOErrorKinds.ConsumeBufferError`](@ref)
+    * [`IOErrorKinds.EOF`](@ref)
+    * [`IOErrorKinds.BufferTooShort`](@ref)
+    * [`IOErrorKinds.WriterFull`](@ref)
+    * [`IOErrorKinds.BadSeek`](@ref)
+    * [`IOErrorKinds.ClosedIO`](@ref)
     """
     @enum IOErrorKind::UInt8 begin
         ConsumeBufferError
@@ -75,6 +69,54 @@ module IOErrorKinds
         WriterFull
         ClosedIO
     end
+
+    """
+        ConsumeBufferError
+
+    Occurs when calling `consume` with a negative amount of bytes,
+    or with more bytes than `length(get_buffer(io))`.
+    """
+    ConsumeBufferError
+
+    """
+        BadSeek
+
+    An out-of-bounds seek operation was attempted.
+    """
+    BadSeek
+
+    """
+        EOF
+
+    Occurs when trying a reading operation on a file that has reached end-of-file.
+    """
+    EOF
+
+    """
+        BufferTooShort
+
+    Thrown by various functions that require a minimum buffer size, which
+    the `io` cannot provide. This should only be thrown if the buffer is unable to grow to
+    the required size, and not if e.g. the buffer does not expand because the io is EOF.
+    """
+    BufferTooShort
+
+    """
+        WriterFull
+
+    Occurs when a writer cannot make room for more data, i.e. when
+    `grow_buffer` returns zero, such that a write operation cannot complete.
+    If a writer can make room, but not a contiguous buffer of a required minimum size,
+    `BufferTooShort` is thrown instead.
+    """
+    WriterFull
+
+    """
+        ClosedIO
+
+    Indicates an operation was done on a closed IO.
+    """
+    ClosedIO
 
     public IOErrorKind,
         ConsumeBufferError,
