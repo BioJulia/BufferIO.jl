@@ -8,6 +8,12 @@ Order   = [:type, :function]
 ```@docs
 IOErrorKinds.IOErrorKind
 IOErrorKinds
+IOErrorKinds.ConsumeBufferError
+IOErrorKinds.BadSeek
+IOErrorKinds.EOF
+IOErrorKinds.BufferTooShort
+IOErrorKinds.WriterFull
+IOErrorKinds.ClosedIO
 Base.readavailable(::AbstractBufReader)
 Base.peek(x::AbstractBufReader, ::Type{UInt8})
 Base.read(x::AbstractBufReader, ::Type{UInt8})

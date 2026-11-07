@@ -274,6 +274,35 @@ end
     @test eof(io_reader)
 end
 
+@testset "IOReader copyline to specific IO types" begin
+    # A writable IOBuffer backed by a view is not an `IOBuffer`, but a `GenericIOBuffer`
+    # with another type parameter.
+    mem = zeros(UInt8, 16)
+    out = IOBuffer(view(mem, 1:16); write = true, maxsize = 16)
+    @test copyline(out, IOReader(CursorReader("abc\r\ndef"))) === out
+    @test String(mem[1:position(out)]) == "abc"
+
+    for (input, keep, expected) in [
+            ("abc\ndef", false, "abc"),
+            ("abc\ndef", true, "abc\n"),
+            ("abc\r\ndef", false, "abc"),
+            ("a\r\r\n", false, "a\r"),
+            ("abc\r", false, "abc\r"),
+        ]
+        vec = VecWriter()
+        writer = IOWriter(vec)
+        @test copyline(writer, IOReader(CursorReader(input)); keep) === writer
+        flush(writer)
+        @test String(vec.vec) == expected
+
+        mktemp() do path, stream
+            @test copyline(stream, IOReader(CursorReader(input)); keep) === stream
+            close(stream)
+            @test read(path, String) == expected
+        end
+    end
+end
+
 @testset "IOReader readuntil" begin
     cursor = CursorReader("read#until#delimiter#end")
     io_reader = IOReader(cursor)

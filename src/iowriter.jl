@@ -46,3 +46,8 @@ Base.unsafe_write(io::IOWriter, p::Ptr{UInt8}, n::UInt) = unsafe_write(io.x, p, 
 
 # Other methods
 Base.seek(x::IOWriter, n::Integer) = (seek(x.x, n); x)
+
+# See comment on `copyline` in ioreader.jl
+function Base.copyline(out::IOWriter, from::IOReader; keep::Bool = false)
+    return copyline(out, from.x; keep)
+end

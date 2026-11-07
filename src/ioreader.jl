@@ -87,12 +87,10 @@ function Base.copyuntil(out::IO, from::IOReader, delim::UInt8; keep::Bool = fals
     return copyuntil(out, from.x, delim; keep)
 end
 
-function Base.copyline(out::IO, from::IOReader; keep::Bool = false)
-    return copyline(out, from.x; keep)
-end
-
-# Prevent ambiguity
-function Base.copyline(out::IOBuffer, from::IOReader; keep::Bool = false)
+# There is deliberately no method for `out::IO`, because it would be ambiguous with Base's
+# `copyline` for the private type `GenericIOBuffer`, which is efficient for `IOReader`.
+# Other `IO` types use Base's bytewise fallback, unless they get a concrete method here.
+function Base.copyline(out::IOStream, from::IOReader; keep::Bool = false)
     return copyline(out, from.x; keep)
 end
 
