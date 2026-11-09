@@ -291,7 +291,7 @@ function resize_buffer(x::BufReader, n::Int)
     end
     new_buffer = Memory{UInt8}(undef, n)
     if !iszero(n_buffered)
-        dst = @inbounds MemoryView(new_buffer)[1:n_buffered]
+        dst = @inbounds MemoryViews.truncate(MemoryView(new_buffer), n_buffered)
         src = @inbounds MemoryView(get_memory(x))[x.start:x.stop]
         @inbounds copyto!(dst, src)
     end

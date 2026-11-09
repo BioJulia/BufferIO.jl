@@ -102,7 +102,7 @@ function Base.iterate(x::LineViewIterator, state::Int = 0)
         return isempty(buffer) ? nothing : (buffer, length(buffer))
     else
         buffer = get_buffer(x.reader)
-        line_view = buffer[1:pos]
+        line_view = MemoryViews.truncate(buffer, pos)
         if !x.keep
             line_view = _chomp(line_view)
         end
@@ -228,7 +228,7 @@ function Base.iterate(x::MemLineViewIterator, state::Int = 0)
     if pos === nothing
         return (mem, state + length(mem))
     end
-    line = @inbounds mem[1:pos]
+    line = @inbounds MemoryViews.truncate(mem, pos)
     if !x.keep
         line = _chomp(line)
     end

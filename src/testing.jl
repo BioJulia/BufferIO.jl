@@ -29,7 +29,7 @@ using ..BufferIO: BufferIO,
     get_buffer,
     consume
 
-using MemoryViews: ImmutableMemoryView, MutableMemoryView, MemoryView
+using MemoryViews: MemoryViews, ImmutableMemoryView, MutableMemoryView, MemoryView
 
 export BoundedReader, BoundedWriter, ChunkedReader
 
@@ -126,7 +126,7 @@ Base.isopen(x::BoundedReader) = !x.closed
 # Move the buffer to new memory, removing its first `n_consume` bytes, and moving
 # `n_fill` bytes from `inner` to its end.
 function relocate!(x::BoundedReader, n_consume::Int, n_fill::Int)
-    x.buffer = relocated(x.buffer, n_consume, get_buffer(x.inner)[1:n_fill])
+    x.buffer = relocated(x.buffer, n_consume, MemoryViews.truncate(get_buffer(x.inner), n_fill))
     consume(x.inner, n_fill)
     return nothing
 end
@@ -291,7 +291,7 @@ end
 function BufferIO.grow_buffer(x::BoundedWriter)::Int
     x.closed && throw(IOError(IOErrorKinds.ClosedIO))
     n = x.n_buffered
-    append!(x.sink, ImmutableMemoryView(x.buffer)[1:n])
+    append!(x.sink, MemoryViews.truncate(ImmutableMemoryView(x.buffer), n))
     x.n_buffered = 0
     return n
 end
