@@ -77,7 +77,7 @@ function Base.read(x::AbstractBufReader, nb::Integer)
         buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
         isnothing(buf) && return v
         mn = min(length(buf), remaining)
-        buf = @inbounds buf[1:mn]
+        buf = @inbounds MemoryViews.truncate(buf, mn)
         append!(v, buf)
         @inbounds consume(x, mn)
         remaining -= mn
@@ -206,10 +206,10 @@ function Base.readbytes!(x::AbstractBufReader, b::AbstractVector{UInt8}, nb::Int
         # Make sure to only append if `b` has already been filled, so it works
         # correctly with `b` that cannot be resized.
         if iszero(remaining_b_space)
-            buffer = buffer[1:min(length(buffer), nb - n_read)]
+            buffer = MemoryViews.truncate(buffer, min(length(buffer), nb - n_read))
             append!(b, buffer)
         else
-            buffer = buffer[1:min(remaining_b_space, nb - n_read, length(buffer))]
+            buffer = MemoryViews.truncate(buffer, min(remaining_b_space, nb - n_read, length(buffer)))
             copyto!(b, n_read + 1, buffer, 1, length(buffer))
         end
         @inbounds consume(x, length(buffer))
@@ -242,7 +242,7 @@ end
         buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
         isnothing(buffer) && return nothing
         mn = min(remaining, length(buffer))
-        buffer = @inbounds buffer[1:mn]
+        buffer = @inbounds MemoryViews.truncate(buffer, mn)
         copyto!(A, Ai, buffer, 1, mn)
         @inbounds consume(x, mn)
         Ai += mn
@@ -308,7 +308,7 @@ function Base.copyuntil(
             write(out, buffer)
             @inbounds consume(from, length(buffer))
         else
-            to_write = @inbounds buffer[1:(pos - !keep)]
+            to_write = @inbounds MemoryViews.truncate(buffer, pos - !keep)
             write(out, to_write)
             @inbounds consume(from, pos)
             return out
@@ -362,7 +362,7 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                         continue
                     end
                 else
-                    @inbounds buffer[1:(end - 1)]
+                    @inbounds MemoryViews.truncate(buffer, length(buffer) - 1)
                 end
             else
                 buffer
@@ -378,7 +378,7 @@ function Base.copyline(out::Union{IO, AbstractBufWriter}, from::AbstractBufReade
                 b
             end
         else
-            buf = @inbounds buffer[1:pos]
+            buf = @inbounds MemoryViews.truncate(buffer, pos)
             buf = keep ? buf : _chomp(buf)
             write(out, buf)
             @inbounds consume(from, pos)
@@ -417,7 +417,7 @@ end
 # Copy the first `n` bytes of `buffer`, which is the buffer of `x`, into a string,
 # and consume them.
 @inline function take_line!(x::AbstractBufReader, buffer::ImmutableMemoryView{UInt8}, n::Int, keep::Bool)
-    line = @inbounds buffer[1:n]
+    line = @inbounds MemoryViews.truncate(buffer, n)
     str = String(keep ? line : _chomp(line))
     @inbounds consume(x, n)
     return str
@@ -449,7 +449,7 @@ function readline_accumulate(x::AbstractBufReader, keep::Bool)
             append!(v, buffer)
             @inbounds consume(x, length(buffer))
         else
-            append!(v, @inbounds buffer[1:pos])
+            append!(v, @inbounds MemoryViews.truncate(buffer, pos))
             @inbounds consume(x, pos)
             break
         end

@@ -125,7 +125,7 @@ function move_inner_to_own!(io::ExpandReader, min_mem_size::Int)
     if length(mem) < mem_size
         mem = Memory{UInt8}(undef, overallocation_size(mem_size % UInt))
     end
-    buffer = MemoryView(mem)[1:n]
+    buffer = MemoryViews.truncate(MemoryView(mem), n)
     copyto!(buffer, inner_buffer)
     consume(io.inner, n)
     io.buffer = buffer
@@ -268,7 +268,7 @@ end
         copyto!(new_mem, 1, mem, start, n_own)
         mem = new_mem
     end
-    io.buffer = MemoryView(mem)[1:n_own]
+    io.buffer = MemoryViews.truncate(MemoryView(mem), n_own)
     return 1
 end
 

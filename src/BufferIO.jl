@@ -188,7 +188,7 @@ function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
         has_cr = has_lf & two_bytes & (@inbounds(x[length(x) - two_bytes]) == 0x0d)
         length(x) - (has_lf + has_cr)
     end
-    @inbounds return x[1:len]
+    @inbounds return MemoryViews.truncate(x, len)
 end
 
 """
@@ -835,7 +835,7 @@ function write_repeated(io::AbstractBufWriter, byte::UInt8, n::Int)
     original = remaining
     while !iszero(remaining)
         buffer = @something get_nonempty_buffer(io) throw(IOError(IOErrorKinds.WriterFull))
-        buffer = @inbounds buffer[1:min(length(buffer) % UInt, remaining)]
+        buffer = @inbounds MemoryViews.truncate(buffer, min(length(buffer) % UInt, remaining))
         fill!(buffer, byte)
         @inbounds consume(io, length(buffer))
         remaining -= length(buffer) % UInt
