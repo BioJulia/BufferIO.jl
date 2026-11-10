@@ -561,6 +561,12 @@ function Base.write(io::AbstractBufWriter, v::ContiguousByteSubArray)
     return write(io, ImmutableMemoryView(v))
 end
 
+# Before this version, `StringView` is defined in StringViews.jl, and this method
+# is defined in the package extension `StringViewsExt` instead.
+@static if VERSION ≥ v"1.14.0-DEV.2029"
+    Base.write(io::AbstractBufWriter, s::Base.StringView) = write(io, codeunits(s))
+end
+
 """
     close(io::Union{AbstractBufReader, AbstractBufWriter})
 

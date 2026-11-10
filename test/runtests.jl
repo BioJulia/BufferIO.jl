@@ -1,6 +1,7 @@
 using BufferIO
 using Test
 using MemoryViews
+using StringViews: StringView
 using BufferIO.Testing: BoundedReader, BoundedWriter, ChunkedReader
 using Aqua: Aqua
 
