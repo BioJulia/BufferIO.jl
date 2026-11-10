@@ -71,21 +71,21 @@ end
 # typically fast.
 Base.write(io::LineWriter, s::AbstractString) = write(io, String(s)::String)
 
-# These resolve method ambiguities between the method above and Base's more specific
-# `write(::IO, ...)` methods. Base's methods must be used instead of converting to `String`:
-# They eventually call `unsafe_write(::LineWriter, ...)`, so they are correctly line flushed,
-# but `StringView` avoids a copy, and `AnnotatedString` may be written with its styling.
-# Base added this `AnnotatedString` method in 1.13.0-DEV.428, backported to 1.12.0-beta2.
-# Julia 1.11 has the type but not the method, so there is no ambiguity to resolve.
+# These version gated methods resolve ambiguities.
+
+# Use invoke here, because Base's implementation is fancy and uses Base internals,
+# so we can't duplicate it here.
+# This was implemented in 1.13.0-DEV.428, but backported.
 @static if VERSION ≥ v"1.12.0-beta2"
     function Base.write(io::LineWriter, s::Union{Base.AnnotatedString, SubString{<:Base.AnnotatedString}})
         return invoke(write, Tuple{IO, typeof(s)}, io, s)::Int
     end
 end
 
+# On older Julia versions, this method is defined in the extension `StringViewsExt`.
 @static if VERSION ≥ v"1.14.0-DEV.2029"
     function Base.write(io::LineWriter, s::Union{Base.StringView, SubString{<:Base.StringView}})
-        return invoke(write, Tuple{IO, typeof(s)}, io, s)::Int
+        return write(io, codeunits(s))
     end
 end
 

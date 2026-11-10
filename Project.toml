@@ -6,15 +6,23 @@ authors = ["Jakob Nybo Andersen <jnandersen@proton.me>"]
 [deps]
 MemoryViews = "a791c907-b98b-4e44-8f4d-e4c2362c6b2f"
 
+[weakdeps]
+StringViews = "354b36f9-a18e-4713-926e-db85100087ba"
+
+[extensions]
+StringViewsExt = "StringViews"
+
 [compat]
 Aqua = "0.8.18"
 MemoryViews = "0.5"
+StringViews = "1, 2"
 Test = "1.11"
 julia = "1.11"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+StringViews = "354b36f9-a18e-4713-926e-db85100087ba"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Aqua", "Test"]
+test = ["Aqua", "StringViews", "Test"]

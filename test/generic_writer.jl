@@ -91,6 +91,15 @@ end
     @test io.x.vec == b"abcdefghijkl"
 end
 
+@testset "write(::T, ::StringView)" begin
+    io = GenericBufWriter()
+    @test write(io, StringView(b"abc")) == 3
+    data = UInt8[0x00, 0x64, 0x65, 0x66, 0x00]
+    @test write(io, StringView(view(data, 2:4))) == 3
+    @test write(io, StringView(UInt8[])) == 0
+    @test io.x.vec == b"abcdef"
+end
+
 @testset "unsafe_write" begin
     # Test basic unsafe_write with array
     io = GenericBufWriter()
