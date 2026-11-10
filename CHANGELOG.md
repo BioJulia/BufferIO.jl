@@ -1,3 +1,9 @@
+# 0.3.2
+## New features
+* Export `buffer_until(::AbstractBufReader, ::UInt8)`, which fetches a buffer with
+  the content of the reader until and including the first occurrence of the byte,
+  or EOF.
+
 # 0.3.1
 ## New features
 * Added `LineWriter`, a `Base.IO` which automatically flushes when a newline byte

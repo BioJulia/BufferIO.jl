@@ -25,7 +25,7 @@ Beside the new interfaces, BufferIO also provides a small set of basic types to 
 * [`VecWriter`](@ref): An `AbstractBufWriter` type that is a faster and simpler alternative to `IOBuffer` usable e.g. to build strings.
 
 ## Examples
-See the page with [Example use of BufferIO](@ref) in the sidebar to the left, or take a look at the docstrings of functions.
+See the page with [Example uses of BufferIO](@ref) in the sidebar to the left, or take a look at the docstrings of functions.
 
 ## Design notes and limitations
 #### Requires Julia 1.11

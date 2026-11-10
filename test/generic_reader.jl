@@ -819,3 +819,105 @@ end
         @test isopen(reader) == !closing_disables
     end
 end
+
+@testset "buffer_until" begin
+    nl = UInt8('\n')
+
+    @testset "Basic and EOF behaviour" begin
+        for make in [
+                CursorReader,
+                s -> BufReader(IOBuffer(s), 2),
+                s -> GenericBufReader(s),
+                s -> BoundedReader(s, 100),
+                s -> ChunkedReader(isempty(s) ? String[] : [s]),
+            ]
+            # Empty reader gives an empty view, not `nothing`
+            buf = buffer_until(make(""), nl)
+            @test buf isa ImmutableMemoryView{UInt8}
+            @test isempty(buf)
+
+            # Byte as the first byte
+            @test String(buffer_until(make("\nabc"), nl)) == "\n"
+
+            # Stops at the first occurrence, and includes it
+            reader = make("ab\ncd\nef")
+            @test String(buffer_until(reader, nl)) == "ab\n"
+
+            # Does not consume: Calling again returns the same line
+            @test String(buffer_until(reader, nl)) == "ab\n"
+            consume(reader, 3)
+            @test String(buffer_until(reader, nl)) == "cd\n"
+            consume(reader, 3)
+
+            # At EOF without the byte, return the remaining data
+            buf = buffer_until(reader, nl)
+            @test String(buf) == "ef"
+            @test last(buf) != nl
+            consume(reader, 2)
+            @test isempty(buffer_until(reader, nl))
+        end
+    end
+
+    @testset "Byte only arrives after several fills" begin
+        reader = ChunkedReader(["ab", "cd", "e\nf", "g\nh"])
+        buf = buffer_until(reader, nl)
+        @test String(buf) == "abcde\n"
+        # The buffer may contain more than the returned view
+        @test length(get_buffer(reader)) ≥ length(buf)
+        @test String(get_buffer(reader)[1:length(buf)]) == "abcde\n"
+
+        # Byte straddling chunk boundary at the very end of a chunk
+        reader = ChunkedReader(["ab", "c\n", "d"])
+        @test String(buffer_until(reader, nl)) == "abc\n"
+
+        # Small fills
+        reader = BoundedReader("abcdefgh\nij", 100; max_fill = 1)
+        @test String(buffer_until(reader, nl)) == "abcdefgh\n"
+    end
+
+    @testset "Non-default byte" begin
+        reader = CursorReader("a\tb\nc\t")
+        @test String(buffer_until(reader, UInt8('\t'))) == "a\t"
+        @test String(buffer_until(reader, 0x00)) == "a\tb\nc\t"
+    end
+
+    @testset "Buffer cannot grow" begin
+        # Buffer limited to 4 bytes, but line is longer
+        reader = BoundedReader("abcdefg\nh", 4)
+        @test buffer_until(reader, nl) === nothing
+        # Line fits in buffer
+        reader = BoundedReader("abc\ndefgh", 4)
+        @test String(buffer_until(reader, nl)) == "abc\n"
+        consume(reader, 4)
+        # Remaining data does not fit, and has no newline
+        @test buffer_until(reader, nl) === nothing
+
+        # Remaining data at EOF fits, but has no newline
+        reader = BoundedReader("abc", 4)
+        @test String(buffer_until(reader, nl)) == "abc"
+
+        # Wrapping in ExpandReader makes it work
+        reader = expandable(BoundedReader("abcdefg\nh", 4))
+        @test String(buffer_until(reader, nl)) == "abcdefg\n"
+
+        # A reader which cannot fill a nonempty buffer
+        reader = BlockReader("abcdef\n", 3)
+        @test buffer_until(reader, nl) === nothing
+        reader = BlockReader("ab\ncdef", 3)
+        @test String(buffer_until(reader, nl)) == "ab\n"
+    end
+
+    @testset "Invalid fill_buffer" begin
+        # fill_buffer reports more bytes than were added
+        reader = ScriptedReader("abcdef", 2)
+        fill_buffer(reader.x)
+        push!(reader.script, 3)
+        @test_throws ErrorException buffer_until(reader, nl)
+
+        # fill_buffer returns a negative number
+        reader = ScriptedReader("abcdef", 2)
+        fill_buffer(reader.x)
+        push!(reader.script, -1)
+        @test_throws ErrorException buffer_until(reader, nl)
+    end
+end
