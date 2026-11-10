@@ -1,121 +1,105 @@
-## Example use of BufferIO
+## Example uses of BufferIO
 
-### Examples in the wild
+Most applications of `BufferIO` use basic read/write operations, where there is little difference between BufferIO
+and `Base.IO`, apart from somewhat more precise semantics in the former.
+
+The examples below highlight situations where BufferIO's semantics enable behaviour that is difficult to achieve with `Base.IO`.
+The enabling semantics are typically that data can be read directly from the IO's buffer, without having to copy the data
+out of the IO or advance the IO.
+
+### BufferIO in the wild
 At the time of writing, BufferIO is a brand-new package with limited usage in the Julia ecosystem.
 
 So far, the users of BufferIO are:
 
 * [BGZFLib.jl](https://github.com/BioJulia/BGZFLib.jl)
+* [PairwiseMappingFormat.jl](https://github.com/BioJulia/PairwiseMappingFormat.jl)
 
-### Reader example
-For bulk I/O operations, there is often not much practical difference between `Base.IO` and the BufferIO interfaces - except somewhat more precise semantics of the latter.
+### Reader examples
+#### Reading a decimal number
+Suppose we are reading a tab-delimited field consisting of a non-negative decimal number.
+The following code has properties that are hard to achieve with Base code:
+* Non-allocating on Julia 1.14 and above
+* Non-throwing on EOF, which is an expected condition, unlike e.g. permission-denied errors
+* Does not advance `io` if the data is unexpectedly malformed, allowing recovery
 
-Where BufferIO really shines are when you need to read and parse at the same time.
-For example, suppose you need to read a non-negative decimal number from an io object. You need to figure out where the number ends, _before_ reading it, lest you read too many bytes.
-With a `Base.IO` type, your choices are:
-1. Read one byte at a time, which is inefficient
-2. Implement your own buffering layer, and load data into the buffer, then read the number from the buffer.
-
-The latter is essentially an ad-hoc implementation of a BufferIO-like interface.
-This is what packages like FASTX.jl, XAM.jl and other parsing packages do.
-
-Below is an implementation of how to do it using BufferIO.
+For the sake of the example, this function uses a `BufReader`, but it could use another
+`AbstractBufReader`. To use a generic `AbstractBufReader`, the function would have to handle
+the case where the buffer is shorter than the field length. This is possible, but requires some boilerplate
+not relevant here.
 
 ```julia
-using BufferIO, StringViews, MemoryViews
-
-is_decimal(x::UInt8) = in(x, UInt8('0'):UInt8('9'))
-
-function read_decimal_number(io::AbstractBufReader)::Union{Int, Nothing}
-    scan_from = 1
-    buffer = get_buffer(io)
-    local non_digit_pos
-    # Keep expanding buffer until we reach EOF, or find the first non-digit
-    while true
-        non_digit_pos = findnext(!is_decimal, buffer, scan_from)
-        if isnothing(non_digit_pos)
-            # Next iteration, do not re-scan the same bytes to find end of number
-            scan_from = length(buffer) + 1
-            n_filled = fill_buffer(io)
-            # `nothing` means buffer could not grow. Many subtypes of `AbstractBufReader`
-            # will never return this, in which case this error branch is compiled away
-            isnothing(n_filled) && throw(IOError(IOErrorKinds.BufferTooShort))
-            # This indicates EOF, so we attempt to parse the rest of the line
-            if iszero(n_filled)
-                non_digit_pos = lastindex(buffer) + 1
-                break
-            end
-            buffer = get_buffer(io)
-            # Check `fill_buffer` was implemented correctly
-            @assert length(buffer) ≥ scan_from
-        else
-            break
-        end
-    end
-    # If no digit was found, do not attempt to parse
-    non_digit_pos == 1 && return nothing
-    # Rely on existing Base parsing functionality to throw e.g. overflow
-    # errors. Since this is validated data of a known type, a custom implementation
-    # could be much faster.
-    digit = parse(Int, StringView(buffer[1:non_digit_pos - 1]))
-    consume(io, non_digit_pos - 1)
-    return digit
+function try_read_number_field(io::BufReader)
+    buffer = buffer_until(io, UInt8('\t'))
+    isempty(buffer) && return EOFError()
+    has_tab = buffer[end] == UInt8('\t')
+    buffer = @inbounds buffer[1:end-has_tab]
+    isempty(buffer) && return nothing
+    all(b -> in(b, 0x30:0x39), buffer) || return nothing
+    # TODO: We don't handle overflow here, for simplicity's sake
+    number = foldl((acc, byte) -> 10 * acc + (byte - 0x30), buffer; init=0)
+    consume(io, length(buffer) + has_tab)
+    return number
 end
 ```
 
-### Writer example
-Similar to the above example, where BufferIO's principle of _the buffer is the interface_ enabled integrating reading and parsing for a more efficient API, BufferIO's writer shine when you can write data directly into a buffer without any intermediate allocations.
+#### State machine
+The package Automa.jl generates regex-based state machines that operate on byte arrays, e.g. for parsing.
+Suppose we have an Automa-generated function `try_parse_chunk`,
+which parses a 1024-byte chunk according to some complicated rule.
+With `Base.IO`, you would normally have to copy the data into a `Vector{UInt8}` and run the state machine
+on the vector. On error, the stream would then have to be rewound.
 
-For example, currently, writing a number to an `IOBuffer` allocates. This is because the number is first heap-allocated, and then data from the heap is copied into the io.
-In contrast, BufferIO provides the the a buffer to write into directly.
-
-BufferIO does not implement writing integers, but such a method is useful as an example:
+With BufferIO, you can read the data directly from the `io` itself:
 
 ```julia
-using BufferIO
-
-# Constrain the signature to types of a known binary layout which we can copy
-# directly using a pointer
-const BitInteger = Union{Int, UInt...}
-
-function write_integer(io::AbstractBufWriter, n::BitInteger)
-    buffer = get_buffer(io)
-    if length(buffer) ≥ sizeof(n)
-        # Fast path: Store the integer directly into the buffer, in little-endian order
-        GC.@preserve buffer unsafe_store!(Ptr{typeof(n)}(pointer(buffer)), htol(n))
-        @inbounds consume(io, sizeof(n))
-    else
-        # Slow path: Write one byte at a time, least significant byte first.
-        # `write` grows the buffer as needed.
-        for i in 0:(sizeof(n) - 1)
-            write(io, (n >>> (8 * i)) % UInt8)
-        end
-    end
-    return sizeof(n)
+function try_read_chunk(io::BufReader)
+    buffer = @something get_nonempty_buffer(io, 1024) return nothing # EOF
+    buffer = buffer[1:1024]
+    chunk = @something try_parse_chunk(buffer) return nothing # Bad parse
+    consume(io, 1024)
+    return chunk
 end
 ```
 
-This works for any writer, even one whose buffer can never hold `sizeof(n)` bytes.
+### Writer examples
+Similar to the buffered readers, `AbstractBufWriter`s typically have an advantage over `Base.IO` types when it is useful
+to write directly into the writer's buffer.
 
-Some data must be written to contiguous memory, for example because it is produced by
-a function that writes to a pointer. Use the two-arg method of `get_nonempty_buffer` to
-get a buffer of a minimum size. It returns `nothing` if `io` can't provide one, in which
-case the data can be written to a `VecWriter` first, then copied to `io`.
-Writers with an unbounded buffer, like `BufWriter` and `VecWriter`, never return `nothing`.
+#### Efficiently storing a custom bitstype
+This example shows how to efficiently write a custom bitstype into a `BufWriter`.
+This method writes the struct directly into the writer. With `Base.IO`, you would have to
+allocate an intermediate object that can be written as bytes, e.g. a `Ref`, which may or may not be optimized away.
+
+Similar code can also work generically for `AbstractBufWriter`, but generic code will
+have to handle the situation where the buffer is not growable and smaller than the struct size.
+Since the buffer of `BufWriter` is growable, we don't need to handle that case here.
 
 ```julia
-# Suppose `encode!(ptr, x)` writes `x` to `ptr` and returns the number of bytes written,
-# and `max_encoded_size(x)` is an upper bound on that number.
-function write_encoded(io::AbstractBufWriter, x)
-    max_size = max_encoded_size(x)
-    buffer = get_nonempty_buffer(io, max_size)
-    if isnothing(buffer)
-        tmp = VecWriter(undef, max_size)
-        write_encoded(tmp, x)
-        return write(io, tmp.vec)
-    end
-    n = GC.@preserve buffer encode!(pointer(buffer), x)
-    consume(io, n)
-    return n
+struct MyStruct
+    a::UInt32
+    b::Float32
+end
+
+function write_struct(io::BufWriter, x::MyStruct)
+    sz = sizeof(x)
+    buffer = get_nonempty_buffer(io, sz)
+    GC.@preserve buffer unsafe_store!(Ptr{MyStruct}(pointer(buffer)), x)
+    consume(io, sz)
+    return sz
+end
+```
+
+#### String building
+Base Julia uses `IOBuffer` for string building. This package's `VecWriter` is generally faster.
+
+```julia
+function name_to_tab_sep_string(fst::StringView, lst::StringView)::String
+    # Preallocate exact size for performance
+    v = VecWriter(undef, ncodeunits(fst) + ncodeunits(lst) + 1)
+    write(v, fst)
+    write(v, UInt8('\t'))
+    write(v, lst)
+    takestring!(v)
 end
 ```

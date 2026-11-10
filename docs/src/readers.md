@@ -54,43 +54,50 @@ end
 The code above may be simplified by using the convenience function [`get_nonempty_buffer`](@ref)
 or by simply calling the already-implemented `read(io, n)`.
 
-### Example: Reading a line without intermediate allocations
-In this example, we want to buffer a full line in `io`'s buffer, and then return a view into the buffer
-representing that line.
+### Example: Buffering N lines
+In this example, we want to buffer N full lines in `io`'s buffer,
+and then return a view into the buffer representing these lines.
 
-This function is an unusual use case, because we need to ensure the buffer is able to hold a full line.
-For most IO operations, we do not need, nor want to control exactly how much is buffered by `io`,
+This function is an unusual use case, because we need to ensure
+the buffer is able to hold N full lines.
+For most IO operations, we do not need, nor want to control exactly
+how much is buffered by `io`,
 since leaving that up to `io` is typically more efficient.
 
-Therefore, this is one of the rare cases where we may need to force `io` to grow its buffer.
+Therefore, this is one of the cases where we may need to force `io`
+to grow its buffer.
+Here, if the buffer grows to its maximum size, we return `nothing`.
+If it hits EOF, it returns whatever is the remaining content in `io`.
 
 ```julia
-function get_line_view(io::AbstractBufReader)
-    # Which position to search for a newline from
+function get_n_lines(io::AbstractBufReader, n::UInt)
+    buffer = get_buffer(io)
+    iszero(n) && return buffer[1:0]
+    # At EOF, return an empty buffer. Fetch it again, since
+    # `get_nonempty_buffer` may have invalidated `buffer`.
+    buffer = @something get_nonempty_buffer(io) return get_buffer(io)
+
     scan_from = 1
+    lines_found = 0
     while true
-        buffer = get_buffer(io)
         pos = findnext(==(UInt8('\n')), buffer, scan_from)
         if pos === nothing
+            # Buffer can't grow more: Return nothing
             scan_from = length(buffer) + 1
-            n_filled = fill_buffer(io)
-            if n_filled === nothing
-                # fill_buffer may return nothing if the buffer is not empty,
-                # and the buffer cannot be expanded further.
-                error("io could not buffer an entire line")
-            elseif iszero(n_filled)
-                # This indicates EOF, so the line is defined as the rest of the
-                # content of `io`
-                return buffer
-            end
+            n_filled = @something fill_buffer(io) return nothing
+            # EOF: Fetch the buffer again, since `fill_buffer` invalidates old buffers
+            iszero(n_filled) && return get_buffer(io)
+            buffer = get_buffer(io)
         else
-            return buffer[1:pos]
+            lines_found += 1
+            lines_found % UInt == n && return buffer[1:pos]
+            scan_from = pos + 1
         end
     end
 end
 ```
 
-Functionality similar to the above is provided by the [`line_views`](@ref) iterator.
+To buffer just a single line, see [`buffer_until`](@ref).
 
 ### Wrapping a `Base.IO`
 [`BufReader`](@ref) gives any `Base.IO` the `AbstractBufReader` interface.

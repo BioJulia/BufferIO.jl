@@ -24,6 +24,7 @@ export AbstractBufReader,
     fill_buffer,
     grow_buffer,
     consume,
+    buffer_until,
     shallow_flush,
     resize_buffer,
     read_into!,
@@ -175,9 +176,6 @@ function Base.showerror(io::IO, err::IOError)
     end
     return print(io, str)
 end
-
-# Internal type!
-struct HitBufferLimit end
 
 function _chomp(x::ImmutableMemoryView{UInt8})::ImmutableMemoryView{UInt8}
     len = if isempty(x)
@@ -805,6 +803,75 @@ end
         current_size = length(buffer)
     end
     return
+end
+
+"""
+    buffer_until(
+        io::AbstractBufReader, byte::UInt8
+    )::Union{Nothing, ImmutableMemoryView{UInt8}}
+
+Get the buffer up to, and including as its last element, the first occurrence
+of `byte`, or `nothing` if the buffer could not grow enough to reach either EOF
+or an occurrence of `byte`.
+
+If the initial buffer does not contain `byte`, [`fill_buffer`](@ref) is called until
+it does. On EOF, return the remainder of the buffer. This implies that calling this
+function on a file that's already at EOF returns an empty buffer.
+Therefore, this implies that either ends with `byte` as the only occurrence of `byte`
+in the returned buffer, or else the buffer contains all remaining data in `io`.
+These two cases can be distinguished with `!isempty(buffer) && last(buffer) == byte`.
+
+If the buffer cannot be grown further, but does not contain a `byte`, return
+`nothing`. This is not possible for readers for which [`is_expandable`](@ref)
+returns true.
+
+After calling this function, the buffer returned by `get_buffer` may contain
+more bytes than the one returned by this function.
+This function does not `consume` any bytes.
+
+See also: [`get_nonempty_buffer`](@ref)
+
+# Examples
+```jldoctest
+julia> rdr = BufReader(IOBuffer("abcdef\\r\\nghi"), 4);
+
+julia> UInt8('\\n') in get_buffer(rdr) # initially empty
+false
+
+julia> buffer_until(rdr, UInt8('\\n')) |> String
+"abcdef\\r\\n"
+```
+"""
+function buffer_until(
+        io::AbstractBufReader,
+        byte::UInt8
+    )::Union{ImmutableMemoryView{UInt8}, Nothing}
+    scan_from = 1
+    # Starting with a nonempty buffer, rather than calling `findnext` on a possibly
+    # empty one, measurably speeds up the hot path (~15% for short lines).
+    buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer === nothing && return get_buffer(io)::ImmutableMemoryView{UInt8}
+    while true
+        pos = findnext(==(byte), buffer, scan_from)
+        pos === nothing || return @inbounds MemoryViews.truncate(buffer, pos)
+        scan_from = length(buffer) + 1
+        n_filled = fill_buffer(io)
+        if n_filled === nothing
+            return nothing
+        elseif iszero(n_filled)
+            # `fill_buffer` may have invalidated `buffer`, so get it again
+            return get_buffer(io)::ImmutableMemoryView{UInt8}
+        else
+            buffer = get_buffer(io)::ImmutableMemoryView{UInt8}
+            # Handle wrongly negative n_filled by masking with typemax, removing
+            # the sign bit. This way, also check length of new buffer and n_filled
+            # correspond to each other
+            if length(buffer) != scan_from - 1 + (n_filled & typemax(Int))
+                error("Invalid fill_buffer / get_buffer implementation")
+            end
+        end
+    end
+    return # unreachable
 end
 
 ##########################

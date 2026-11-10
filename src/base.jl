@@ -426,11 +426,10 @@ end
 # The buffer of `x` is nonempty, and contains no newline.
 # Grow the buffer until it contains the line, so it can be copied into a string once.
 @noinline function readline_slowpath(x::AbstractBufReader, keep::Bool)
-    pos = buffer_until(x, 0x0a)
-    pos isa HitBufferLimit && return readline_accumulate(x, keep)
-    buffer = get_buffer(x)
-    # If no newline was found, the buffer holds the remaining data until EOF.
-    return take_line!(x, buffer, something(pos, length(buffer)), keep)
+    # If no newline was found, the line holds the remaining data until EOF.
+    line = buffer_until(x, 0x0a)
+    line === nothing && return readline_accumulate(x, keep)
+    return take_line!(x, line, length(line), keep)
 end
 
 # The buffer of `x` is nonempty, contains no newline, and can't grow.
