@@ -30,12 +30,23 @@ end
 # The vector's elements are stored in `get_memory(ref)`, starting at `memindex(ref)`
 memory_ref(v::Vector{UInt8}) = getfield(v, :ref)
 
+# Make `v` use `mem` as its memory, starting at the first element of `mem`.
+# The elements of `v` are not copied.
+# Callers must ensure `length(v) ≤ length(mem)`.
+function unsafe_set_memory!(v::Vector{UInt8}, mem::Memory{UInt8})
+    setfield!(v, :ref, memoryref(mem))
+    return nothing
+end
+
 # Set the length of `v` without initializing or reallocating memory.
 # Callers must ensure `n` is in `0:(length(v) + unused_space(v))`.
 unsafe_set_length!(v::Vector{UInt8}, n::Int) = setfield!(v, :size, (n,))
 
-# A vector whose memory is owned by a `String`, such that `String(v)` can take ownership
-# of the memory instead of copying it. Base keeps this property when the vector grows.
+# Memory owned by a `String`, such that `String(v)` of a vector using the memory can take
+# ownership of the memory instead of copying it. Base keeps this property when the vector
+# grows, but only if the memory is nonempty: Empty string memory is Base's shared empty
+# memory, which is not owned by a string.
+string_memory(len::Int) = Base.StringMemory(len)
 string_vector(len::Int) = Base.StringVector(len)
 
 ################################
@@ -55,6 +66,13 @@ end
 # N.B: `sizehint!` is not used, since it does not guarantee unused space
 # if the vector has a nonzero offset into its memory.
 function add_unused_space!(v::Vector{UInt8}, space::UInt)
+    # Base would grow empty memory into memory not owned by a string, so `String(v)`
+    # would copy. Allocate string memory instead. This lets vectors, and therefore
+    # `VecWriter()`, start without allocating memory.
+    if isempty(get_memory(v))
+        unsafe_set_memory!(v, string_memory(max(space, DEFAULT_VECWRITER_SIZE % UInt) % Int))
+        return nothing
+    end
     len = length(v)
     # Growing reallocates (with overallocation), or moves the elements to the start of the memory
     resize!(v, len + space)
@@ -80,7 +98,7 @@ implicit (non-semantic) behaviour (e.g. memory reallocations or efficiency) of t
 Mutating `vec` invalidates buffers previously obtained from `io` with e.g. `get_buffer`.
 
 Create with one of the following constructors:
-* `VecWriter()`
+* `VecWriter()`: Create an empty vector.
 * `VecWriter(undef, n::Int)`: Create an empty vector with space for at least `n` bytes
 * `VecWriter(vec::Vector{UInt8})`: Append to `vec`, which is not copied.
 
@@ -112,9 +130,10 @@ struct VecWriter <: AbstractBufWriter
     VecWriter(v::Vector{UInt8}) = new(v)
 end
 
+# Number of bytes allocated when a `VecWriter` with no memory is first written to
 const DEFAULT_VECWRITER_SIZE = 32
 
-VecWriter() = VecWriter(undef, DEFAULT_VECWRITER_SIZE)
+VecWriter() = VecWriter(UInt8[])
 
 function VecWriter(::UndefInitializer, len::Int)
     return VecWriter(empty!(string_vector(len)))
@@ -155,7 +174,15 @@ Base.isopen(::VecWriter) = true
 Base.flush(::VecWriter) = nothing
 
 ## Optimised write implementations
-Base.write(io::VecWriter, x::UInt8) = (push!(io.vec, x); 1)
+# Not `push!`, since Base would grow empty memory into memory not owned by a string
+function Base.write(io::VecWriter, x::UInt8)
+    vec = io.vec
+    ensure_unused_space!(vec, UInt(1))
+    len = length(vec) + 1
+    unsafe_set_length!(vec, len)
+    @inbounds vec[len] = x
+    return 1
+end
 
 function Base.unsafe_write(io::VecWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
     iszero(n_bytes) && return 0
@@ -171,4 +198,34 @@ else
     takestring!(io::VecWriter) = String(io.vec)
     # Base defines this method from Julia 1.13
     takestring!(v::Vector{UInt8}) = String(v)
+end
+
+"""
+    take!(io::VecWriter)::MutableMemoryView{UInt8}
+
+Return the previous written ([`consume`](@ref)d) bytes without copying.
+Leave `io` empty, and backed by a different `Memory`.
+
+# Examples
+```jldoctest
+julia> io = VecWriter();
+
+julia> write(io, "Hello, world!")
+13
+
+julia> v = take!(io); v == b"Hello, world!"
+true
+
+julia> write(io, "Other data")
+10
+
+julia> v == b"Hello, world!" # unchanged
+true
+```
+"""
+function Base.take!(io::VecWriter)
+    result = get_unflushed(io)
+    unsafe_set_length!(io.vec, 0)
+    unsafe_set_memory!(io.vec, Memory{UInt8}())
+    return result
 end

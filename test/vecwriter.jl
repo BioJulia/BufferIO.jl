@@ -96,6 +96,113 @@ end
     @test takestring!(vw) == "ghi"
 end
 
+@testset "Memory is string-owned when starting with empty memory" begin
+    function test_reuses_memory(vw::VecWriter, expected::String)
+        p = pointer(vw.vec)
+        s = takestring!(vw)
+        @test s == expected
+        return @test pointer(s) == p
+    end
+    writes = [
+        vw -> write(vw, 0x61),
+        vw -> write(vw, "a"),
+        vw -> write(vw, "a"^100),
+        vw -> (buf = get_nonempty_buffer(vw); buf[1] = 0x61; consume(vw, 1)),
+        vw -> (grow_buffer(vw); buf = get_buffer(vw); buf[1] = 0x61; consume(vw, 1)),
+    ]
+    for f in writes, make in [VecWriter, () -> VecWriter(undef, 0), () -> VecWriter(UInt8[])]
+        vw = make()
+        f(vw)
+        expected = String(copy(vw.vec))
+        test_reuses_memory(vw, expected)
+        # After takestring!, the vector has empty memory again
+        f(vw)
+        test_reuses_memory(vw, expected)
+    end
+
+    # Growing far beyond the initial size
+    vw = VecWriter()
+    for i in 1:1000
+        write(vw, i % UInt8)
+    end
+    test_reuses_memory(vw, String([i % UInt8 for i in 1:1000]))
+end
+
+@testset "take!" begin
+    # Basic use: Returns the written bytes, and leaves the writer empty
+    io = VecWriter()
+    write(io, "Hello, world!")
+    v = take!(io)
+    @test v isa MutableMemoryView{UInt8}
+    @test v == b"Hello, world!"
+    @test isempty(io.vec)
+    @test isempty(get_unflushed(io))
+
+    # The bytes are not copied
+    io = VecWriter()
+    write(io, "abc")
+    p = pointer(io.vec)
+    v = take!(io)
+    @test pointer(v) == p
+
+    # Writes after take! do not affect the result, whether or not the writes
+    # would fit in the memory of the taken bytes
+    for s in ["xyz", "x"^1000]
+        io = VecWriter(undef, 100)
+        write(io, "abc")
+        v = take!(io)
+        write(io, s)
+        @test v == b"abc"
+        @test io.vec == codeunits(s)
+        # Neither do other mutations of the vector
+        fill!(io.vec, 0x00)
+        empty!(io.vec)
+        append!(io.vec, b"def")
+        @test v == b"abc"
+    end
+
+    # The writer is usable after take!, and memory is still string-owned
+    io = VecWriter()
+    write(io, "abc")
+    take!(io)
+    write(io, "def")
+    p = pointer(io.vec)
+    s = takestring!(io)
+    @test s == "def"
+    @test pointer(s) == p
+
+    # Repeated take!
+    io = VecWriter()
+    results = map(["a", "bc", "", "def"]) do s
+        write(io, s)
+        take!(io)
+    end
+    @test results == [b"a", b"bc", b"", b"def"]
+
+    # Empty writers
+    for io in [VecWriter(), VecWriter(undef, 0), VecWriter(undef, 100)]
+        v = take!(io)
+        @test isempty(v)
+        @test isempty(io.vec)
+        write(io, "abc")
+        @test isempty(v)
+        @test io.vec == b"abc"
+    end
+
+    # Takes from a wrapped vector, including bytes not written by the writer,
+    # and with a nonzero offset into its memory
+    vec = collect(b"_abc")
+    popfirst!(vec)
+    io = VecWriter(vec)
+    write(io, "def")
+    v = take!(io)
+    @test v == b"abcdef"
+    @test isempty(vec)
+    push!(vec, 0x01)
+    @test v == b"abcdef"
+    @test io.vec === vec
+end
+
 @testset "Construction" begin
     vw = VecWriter()
     @test vw isa VecWriter

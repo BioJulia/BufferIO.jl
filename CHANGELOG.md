@@ -1,3 +1,8 @@
+# 0.3.3
+## New features
+* Add `Base.take!(::VecWriter)`, which returns the written data as a mutable view,
+  emptying the input writer.
+
 # 0.3.2
 ## New features
 * Export `buffer_until(::AbstractBufReader, ::UInt8)`, which fetches a buffer with
