@@ -467,10 +467,24 @@ function readline_accumulate(x::AbstractBufReader, keep::Bool)
     return String(v)
 end
 
-function Base.readuntil(x::AbstractBufReader, delim::UInt8; keep::Bool = false)
-    io = VecWriter()
-    copyuntil(io, x, delim; keep)
-    return io.vec
+function Base.readuntil(io::AbstractBufReader, delim::UInt8; keep::Bool = false)
+    buffer = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    isnothing(buffer) && return UInt8[]
+    pos = findfirst(==(delim), buffer)
+    pos === nothing && return readuntil_slowpath(io, delim, keep)
+    v = collect(@inbounds MemoryViews.truncate(buffer, pos - !keep))
+    @inbounds consume(io, pos)
+    return v
+end
+
+# The buffer of `io` is nonempty and contains no `delim`.
+@noinline function readuntil_slowpath(io::AbstractBufReader, delim::UInt8, keep::Bool)
+    buffer = get_buffer(io)
+    v = VecWriter(undef, 2 * length(buffer))
+    append!(v.vec, buffer)
+    @inbounds consume(io, length(buffer))
+    copyuntil(v, io, delim; keep)
+    return v.vec
 end
 
 """
