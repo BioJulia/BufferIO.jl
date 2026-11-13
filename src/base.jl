@@ -2,6 +2,13 @@ const ContiguousByteSubArray{N, P} = SubArray{UInt8, N, P, I, true} where {
     I <: Union{Tuple{AbstractUnitRange, Vararg{Any}}, Tuple{Vararg{Integer}}},
 }
 
+# Arrays which `MemoryView` can construct a `MutableMemoryView{UInt8}` from
+const MutableByteArray = Union{
+    Array{UInt8},
+    Memory{UInt8},
+    ContiguousByteSubArray{N, <:Union{Array{UInt8}, Memory{UInt8}}} where {N},
+}
+
 Base.bytesavailable(x::AbstractBufReader) = length(get_buffer(x))
 
 Base.eof(x::AbstractBufReader) = isnothing(get_nonempty_buffer(x))
@@ -29,13 +36,8 @@ true
 """
 function Base.read(x::AbstractBufReader)
     v = UInt8[]
-    while true
-        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && return v
-        append!(v, buf)
-        @inbounds consume(x, length(buf))
-    end
-    return v # unreachable
+    readbytes_grow!(x, v, 0, typemax(Int))
+    return v
 end
 
 """
@@ -71,18 +73,8 @@ true
 function Base.read(x::AbstractBufReader, nb::Integer)
     nb = Int(nb)::Int
     nb < 0 && throw(ArgumentError("nb cannot be negative"))
-    v = sizehint!(UInt8[], nb)
-    remaining = nb
-    while !iszero(remaining)
-        buf = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && return v
-        mn = min(length(buf), remaining)
-        buf = @inbounds MemoryViews.truncate(buf, mn)
-        append!(v, buf)
-        @inbounds consume(x, mn)
-        remaining -= mn
-    end
-    return v
+    v = Vector{UInt8}(undef, nb)
+    return resize!(v, read_all!(x, MemoryView(v)))
 end
 
 """
@@ -218,6 +210,37 @@ function Base.readbytes!(x::AbstractBufReader, b::AbstractVector{UInt8}, nb::Int
     return n_read
 end
 
+function Base.readbytes!(x::AbstractBufReader, b::Vector{UInt8}, nb::Integer = length(b))
+    nb = Int(nb)::Int
+    initial_len = length(b)
+    n_fill = clamp(nb, 0, initial_len)
+    n_read = read_all!(x, @inbounds MemoryViews.truncate(MemoryView(b), n_fill))
+    # Only grow `b` if it was filled without reaching EOF.
+    n_read == n_fill < nb || return n_read
+    return readbytes_grow!(x, b, n_read, nb)
+end
+
+# `b` has been filled with `n_read` bytes, with `n_read == length(b) < nb`.
+# Read up to `nb` bytes in total into `b`, growing it as needed, and shrink it back
+# to `max(n_read, initial length)`. Return the number of bytes read in total.
+@noinline function readbytes_grow!(x::AbstractBufReader, b::Vector{UInt8}, n_read::Int, nb::Int)::Int
+    initial_len = length(b)
+    while n_read < nb
+        if n_read == length(b)
+            # Grow geometrically, so we do amortized O(1) work per byte, but by at
+            # least the buffered bytes, which are copied into `b` by the next `read_into!`
+            new_len = max(overallocation_size(n_read % UInt), n_read + length(get_buffer(x)))
+            resize!(b, min(nb, new_len))
+        end
+        dst = @inbounds MemoryView(b)[(n_read + 1):end]
+        n = read_into!(x, dst)
+        iszero(n) && break
+        n_read += n
+    end
+    resize!(b, max(n_read, initial_len))
+    return n_read
+end
+
 """
     read!(io::AbstractBufReader, A::AbstractArray{UInt8}) -> A
 
@@ -249,6 +272,11 @@ end
         remaining -= mn
     end
     return A
+end
+
+@inline function _read!(x::AbstractBufReader, A::MutableByteArray)::Union{MutableByteArray, Nothing}
+    mem = MemoryView(A)
+    return read_all!(x, mem) == length(mem) ? A : nothing
 end
 
 """

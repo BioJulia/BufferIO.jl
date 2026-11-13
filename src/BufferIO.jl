@@ -492,12 +492,10 @@ julia> String(v)
 function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
     n_total_read = 0
     while !isempty(dst)
-        buf = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
-        isnothing(buf) && return n_total_read
-        n_read_here = copyto_start!(dst, buf)
+        n_read_here = read_into!(io, dst)
+        iszero(n_read_here) && break
         n_total_read += n_read_here
         dst = @inbounds dst[(n_read_here + 1):end]
-        @inbounds consume(io, n_read_here)
     end
     return n_total_read
 end
