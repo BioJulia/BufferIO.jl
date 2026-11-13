@@ -15,6 +15,7 @@ makedocs(;
         "Readers" => "readers.md",
         "Writers" => "writers.md",
         "Types" => "types.md",
+        "No serialization" => "serde.md",
         "API reference" => "reference.md",
         "Examples" => "examples.md",
     ],
