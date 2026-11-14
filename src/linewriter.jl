@@ -49,10 +49,9 @@ end
 Base.seek(io::LineWriter, p::Integer) = (seek(io.inner, p); io)
 Base.seekend(io::LineWriter) = (seekend(io.inner); io)
 
-function Base.unsafe_write(io::LineWriter, ptr::Ptr{UInt8}, n_bytes::Integer)
-    return unsafe_write(io, ptr, UInt(n_bytes)::UInt)
-end
-
+# Note: Do not define a method taking `n_bytes::Integer`. Base's fallback for `IO` already
+# converts to `UInt`, and such a method would invalidate the many compiled call sites of
+# `unsafe_write(::IO, ::Ptr{UInt8}, ::Int)`, including in the REPL, causing latency.
 function Base.unsafe_write(io::LineWriter, ptr::Ptr{UInt8}, n_bytes::UInt)
     # Search for last newline in chunk; flush after that newline
     m = @ccall memrchr(ptr::Ptr{Cvoid}, 0x0a::Cint, n_bytes::Csize_t)::Ptr{Cvoid}
