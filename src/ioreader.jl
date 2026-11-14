@@ -39,8 +39,6 @@ for f in [
     @eval Base.$(f)(x::IOReader) = $(f)(x.x)
 end
 
-Base.read(x::IOReader, ::Type{String}) = read(x.x, String)
-
 remaining_bytes_hint(x::IOReader) = remaining_bytes_hint(x.x)
 
 function Base.unsafe_read(x::IOReader, p::Ptr{UInt8}, n::UInt)
