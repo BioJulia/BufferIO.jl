@@ -251,6 +251,7 @@ with a limited buffer size.
 `BoundedWriter` only implements the methods required of an `AbstractBufWriter`, so
 optional methods such as `seek` and `position` are unsupported or use the generic
 fallback definitions.
+`BufferIO.is_expandable(BoundedWriter)` is `false`.
 
 # Examples
 ```jldoctest

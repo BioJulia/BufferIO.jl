@@ -46,3 +46,8 @@ VecWriter
 ```@docs; canonical=false
 ExpandReader
 ```
+
+## ExpandWriter
+```@docs; canonical=false
+ExpandWriter
+```

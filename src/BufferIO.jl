@@ -15,6 +15,7 @@ export AbstractBufReader,
     IOWriter,
     CursorReader,
     ExpandReader,
+    ExpandWriter,
     IOError,
     IOErrorKinds,
     LineWriter,
@@ -262,6 +263,7 @@ They may optionally implement
 * `Base.position(io::T)`
 * `get_unflushed(io::T)`
 * `resize_buffer(io::T, ::Int)`
+* `BufferIO.is_expandable(::Type{T})`
 * `get_nonempty_buffer(io::T, ::Int)`
 * `Base.unsafe_write(io::T, ::Ptr{UInt8}, ::UInt)`
 """
@@ -677,6 +679,8 @@ The desired buffer length is obtained by repeatedly calling [`grow_buffer`](@ref
 
 Writers whose buffer can grow without bound, such as [`VecWriter`](@ref) and
 [`BufWriter`](@ref), never return `nothing`.
+More generally, writers for which [`is_expandable`](@ref) returns `true`
+never return `nothing`. To obtain such a writer, consider using [`expandable`](@ref).
 
 !!! warning
     Use of this method may cause excessive buffering without flushing,
@@ -930,29 +934,39 @@ function overallocation_size(size::UInt)
 end
 
 """
-    is_expandable(T::Type{<:AbstractBufReader})::Bool
+    is_expandable(T::Type{<:Union{AbstractBufReader, AbstractBufWriter}})::Bool
 
-Trait function that signals if `fill_buffer` on instances of type `T` never returns
-`nothing`. That is, a type `T` must only implement `is_expandable(::Type{T}) = true`
-if `fill_buffer(::T)` returns an `Int` for every instance of `T`.
+Trait function that signals if instances of type `T` can grow their buffer to any size,
+or, for readers, until EOF.
+
+This is a property of the type, not of the instance, and must be constant foldable.
+It is usually implemented as a constant `true`.
+The default is `false` for both readers and writers.
+
+# Readers
+A reader type `T` must only implement `is_expandable(::Type{T}) = true`
+if `fill_buffer(::T)` returns an `Int` for every instance of `T`, i.e. never `nothing`.
 
 In practice, this means instances of `T` are able to buffer their entire content with
 repeated calls to `fill_buffer`. Types for which this returns `true` either already
 buffer their whole content (such as [`CursorReader`](@ref)), or else have a growable
 buffer large enough to hold all the underlying data (such as [`BufReader`](@ref) or
 [`ExpandReader`](@ref)).
+For these types, [`get_nonempty_buffer(io, min_size)`](@ref get_nonempty_buffer(::AbstractBufReader, ::Int))
+never throws an `IOError` of kind `BufferTooShort`.
 
-This is a property of the type, not of the instance, and must be constant foldable.
-It is usually implemented as a constant `true`.
-The default is `is_expandable(::Type{<:AbstractBufReader}) = false`.
+# Writers
+A writer type `T` must only implement `is_expandable(::Type{T}) = true`
+if `grow_buffer(::T)` never returns zero for any instance of `T`.
+If such a writer can't make room for more data, e.g. because an underlying device
+is full, `grow_buffer` must throw an exception, such as an `IOError` of kind `WriterFull`.
+Hence, writers with a concept of being full, such as writers with a maximum size,
+can't be expandable.
 
-Readers that wrap another reader and forward its buffer, e.g. a type `Wrapper{T}`,
-can typically only grow their buffer if the inner reader can. Such types should usually
-forward the trait instead of returning `true`:
-
-```julia
-BufferIO.is_expandable(::Type{Wrapper{T}}) where {T} = BufferIO.is_expandable(T)
-```
+In practice, this means instances of `T` can make their buffer arbitrarily large by
+repeated calls to `grow_buffer`, for example by reallocating the buffer (such as
+[`BufWriter`](@ref) and [`VecWriter`](@ref)), or by serving data from another,
+growable buffer (such as [`ExpandWriter`](@ref)).
 
 See also: [`expandable`](@ref)
 
@@ -961,16 +975,62 @@ See also: [`expandable`](@ref)
 julia> BufferIO.is_expandable(BufReader)
 true
 
-julia> BufferIO.is_expandable(CursorReader)
+julia> BufferIO.is_expandable(VecWriter)
 true
 
 julia> struct FooReader <: AbstractBufReader end
 
 julia> BufferIO.is_expandable(FooReader) # default is false
 false
+
+julia> BufferIO.is_expandable(BufferIO.Testing.BoundedWriter)
+false
 ```
 """
 is_expandable(::Type{<:AbstractBufReader}) = false
+is_expandable(::Type{<:AbstractBufWriter}) = false
+
+"""
+    expandable(io::T)::Union{T, ExpandReader{T}} where {T <: AbstractBufReader}
+    expandable(io::T)::Union{T, ExpandWriter{T}} where {T <: AbstractBufWriter}
+
+Return `io` unchanged if `BufferIO.is_expandable(typeof(io))`, else wrap `io` in an
+`ExpandReader` or `ExpandWriter` and return it.
+The type of the result is guaranteed to have `is_expandable` return `true`, which
+means its buffer size is able to grow without bound, or, for readers, until EOF.
+Equivalently, calling `fill_buffer` on a resulting reader will not return `nothing`,
+and calling `grow_buffer` on a resulting writer will not return zero.
+
+This function is useful when working with non-expandable IOs, or generic IOs,
+where the maximum buffer size is unknown, and where some minimum buffering is required.
+An example could be a reader that wraps a generic `AbstractBufReader`, and must be
+able to buffer a full line of input, or a writer that need to `unsafe_store` values
+of a certain size directly into the buffer of a generic `AbstractBufWriter`.
+
+The concrete return type of `expandable(io)` is resolved at compile time.
+
+See also: [`BufferIO.is_expandable`](@ref)
+
+# Examples
+```jldoctest
+julia> io = BufReader(IOBuffer("abc"));
+
+julia> expandable(io) === io # BufReader is already expandable
+true
+
+julia> io = BufferIO.Testing.BoundedReader("abc", 2);
+
+julia> expandable(io) isa ExpandReader
+true
+
+julia> io = BufferIO.Testing.BoundedWriter(UInt8[], 2);
+
+julia> expandable(io) isa ExpandWriter
+true
+```
+"""
+expandable(io::AbstractBufReader) = is_expandable(typeof(io)) ? io : ExpandReader(io)
+expandable(io::AbstractBufWriter) = is_expandable(typeof(io)) ? io : ExpandWriter(io)
 
 include("base.jl")
 include("bufreader.jl")
@@ -980,7 +1040,8 @@ include("cursor.jl")
 include("ioreader.jl")
 include("iowriter.jl")
 include("vecwriter.jl")
-include("expander.jl")
+include("expand_reader.jl")
+include("expand_writer.jl")
 include("linewriter.jl")
 include("testing.jl")
 

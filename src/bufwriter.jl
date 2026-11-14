@@ -439,6 +439,8 @@ function take_inner(x::BufWriter)
     return x.io
 end
 
+is_expandable(::Type{<:BufWriter}) = true
+
 function consume(x::BufWriter, n::Int)
     @boundscheck if (n % UInt) > (x.capacity - x.consumed) % UInt
         throw(IOError(IOErrorKinds.ConsumeBufferError))

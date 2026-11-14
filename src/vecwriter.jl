@@ -169,6 +169,8 @@ function grow_buffer(io::VecWriter)
     return unused_space(io.vec) - initial_space
 end
 
+is_expandable(::Type{VecWriter}) = true
+
 Base.close(::VecWriter) = nothing
 Base.isopen(::VecWriter) = true
 Base.flush(::VecWriter) = nothing

@@ -15,7 +15,7 @@ when necessary.
 `ExpandReader` takes control of the inner reader, and mutating the inner reader may
 invalidate the `ExpandReader`.
 
-See also: [`expandable`](@ref), [`BufferIO.is_expandable`](@ref)
+See also: [`expandable`](@ref), [`BufferIO.is_expandable`](@ref), [`ExpandWriter`](@ref)
 
 # Examples
 ```jldoctest
@@ -409,14 +409,14 @@ function relative_seek(io::ExpandReader, delta::Int)
 end
 
 """
-    drop_own(io::ExpandReader)::Union{Nothing, Memory{UInt8}}
+    drop_own(io::Union{ExpandReader, ExpandWriter})::Union{Nothing, Memory{UInt8}}
 
 If the own buffer of `io` is in use or `io` is closed, return `nothing`.
 Else, drop the buffer from `io`, and return it.
 The returned memory may be empty, and is owned by the caller, i.e. `io` is
 guaranteed to not keep a reference to it.
 
-Since `ExpandReader`s allocate new buffers as needed, this function does not
+Since `ExpandReader`s and `ExpandWriter`s allocate new buffers as needed, this function does not
 change the semantic behaviour of `io`, only its allocation patterns, and never
 puts `io` in an invalid state.
 It is intended to free memory if extra buffering is only transiently needed.
@@ -449,36 +449,3 @@ function drop_own(io::ExpandReader)
 end
 
 is_expandable(::Type{<:ExpandReader}) = true
-
-"""
-    expandable(io::T)::Union{T, ExpandReader{T}} where {T <: AbstractBufReader}
-
-Return `io` unchanged if `BufferIO.is_expandable(typeof(io))`, else wrap `io` in an
-`ExpandReader` and return it.
-The type of the result is guaranteed to have `is_expandable` return `true`, which
-means its buffer size is able to grow until EOF. Equivalently, calling `fill_buffer`
-on the result will not return `nothing`.
-
-This function is useful when working with non-expandable readers, or generic readers,
-where the maximum buffer size is unknown, and where some minimum buffering is required.
-An example could be a reader that wraps a generic `AbstractBufReader`, and must be
-able to buffer a full line of input.
-
-The concrete return type of `expandable(io)` is resolved at compile time.
-
-See also: [`BufferIO.is_expandable`](@ref)
-
-# Examples
-```jldoctest
-julia> io = BufReader(IOBuffer("abc"));
-
-julia> expandable(io) === io # BufReader is already expandable
-true
-
-julia> io = BufferIO.Testing.BoundedReader("abc", 2);
-
-julia> expandable(io) isa ExpandReader
-true
-```
-"""
-expandable(io::AbstractBufReader) = is_expandable(typeof(io)) ? io : ExpandReader(io)

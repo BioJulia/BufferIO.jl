@@ -52,7 +52,11 @@ end
 end
 
 @testset "ExpandReader" begin
-    include("expander.jl")
+    include("expand_reader.jl")
+end
+
+@testset "ExpandWriter" begin
+    include("expand_writer.jl")
 end
 
 @testset "Testing" begin
