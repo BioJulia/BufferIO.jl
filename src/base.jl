@@ -13,15 +13,12 @@ Base.bytesavailable(x::AbstractBufReader) = length(get_buffer(x))
 
 Base.eof(x::AbstractBufReader) = isnothing(get_nonempty_buffer(x))
 
-Base.read(x::AbstractBufReader, ::Type{String}) = String(read(x))
+Base.read(x::AbstractBufReader, ::Type{String}) = String(read_to_end(x, true))
 
 """
     read(io::AbstractBufReader)::Vector{UInt8}
 
 Read all of `io` into a new `Vector{UInt8}` and return the vector.
-
-This function repeatedly reads from `io` and resizes the vector until `io` reached EOF.
-If the filesize of `io` is known beforehand, calling `read(io, file_size)` may be faster.
 
 # Examples
 ```jldoctest
@@ -34,9 +31,39 @@ julia> v == b"hello"
 true
 ```
 """
-function Base.read(x::AbstractBufReader)
-    v = UInt8[]
-    readbytes_grow!(x, v, 0, typemax(Int))
+Base.read(x::AbstractBufReader) = read_to_end(x, false)
+
+# Read all of `x` into a new vector. If `as_string`, the vector is meant to be converted
+# to a `String`.
+# `String(v)` takes ownership of the memory of a `StringVector` without copying.
+# This holds also after `v` has been grown, but requires `v` to start with nonempty
+# memory, since an empty `StringVector` uses Base's shared empty memory, which is not
+# owned by a string.
+function read_to_end(x::AbstractBufReader, as_string::Bool)::Vector{UInt8}
+    hint = remaining_bytes_hint(x)::Union{Nothing, Int}
+    # A hint of zero is handled like no hint, since `v` must start with nonempty memory.
+    # Comparing with `≤ 0` rather than `iszero` also handles invalid negative hints for free.
+    # At EOF, this probes for EOF just like `readbytes_grow!` would, without allocating.
+    (hint === nothing || hint ≤ 0) && return read_unhinted(x, as_string)
+    # A single `StringVector` is as cheap as a `Vector`, so use it regardless of `as_string`
+    v = string_vector(hint)
+    n_read = read_all!(x, MemoryView(v))
+    n_read < hint && return truncate_result!(v, n_read)
+    readbytes_grow!(x, v, typemax(Int))
+    return v
+end
+
+# Start with the bytes buffered in `x`, then let `readbytes_grow!` grow the vector.
+# Growing a `StringVector` is slower than growing a `Vector`, so only use it if the result
+# is converted to a `String`, where it saves copying the result.
+@noinline function read_unhinted(x::AbstractBufReader, as_string::Bool)::Vector{UInt8}
+    buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    buffer === nothing && return UInt8[]
+    n = length(buffer)
+    v = as_string ? string_vector(n) : Vector{UInt8}(undef, n)
+    copyto!(MemoryView(v), buffer)
+    @inbounds consume(x, n)
+    readbytes_grow!(x, v, typemax(Int))
     return v
 end
 
@@ -45,9 +72,6 @@ end
 
 Read bytes from `io` until either `nb` bytes are read or `io` is EOF, and return the
 bytes read as a `Vector{UInt8}`.
-
-This allocates a `Vector{UInt8}` of size `nb`, so do not pass a large
-value as `nb` in order to read the whole of `io`; use `read(io)` instead.
 
 Throw an `ArgumentError` if `nb` is negative.
 
@@ -73,8 +97,40 @@ true
 function Base.read(x::AbstractBufReader, nb::Integer)
     nb = Int(nb)::Int
     nb < 0 && throw(ArgumentError("nb cannot be negative"))
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    nb > length(buffer) && return read_slowpath(x, nb)
     v = Vector{UInt8}(undef, nb)
-    return resize!(v, read_all!(x, MemoryView(v)))
+    copyto!(MemoryView(v), @inbounds MemoryViews.truncate(buffer, nb))
+    @inbounds consume(x, nb)
+    return v
+end
+
+# When the remaining size of a reader is unknown, `read(io, nb)` allocates at most this
+# many bytes up front, so that a large `nb`, like `typemax(Int)` used to mean "read
+# everything", does not allocate a huge vector.
+# This is not intended use; users should do plain `read(io)`, so we add it as a courtesy.
+const MAX_UNHINTED_READ_ALLOCATION = 16 * 1024 * 1024
+
+# The buffer of `x` holds fewer than `nb` bytes.
+@noinline function read_slowpath(x::AbstractBufReader, nb::Int)
+    hint = remaining_bytes_hint(x)::Union{Nothing, Int}
+    len = min(nb, something(hint, MAX_UNHINTED_READ_ALLOCATION))
+    v = Vector{UInt8}(undef, len)
+    n_read = read_all!(x, MemoryView(v))
+    (n_read < len || len == nb) && return truncate_result!(v, n_read)
+    # The hint was too small, `len` was capped, or `io` has exactly `len` bytes left
+    readbytes_grow!(x, v, nb)
+    return v
+end
+
+# Resize `v` to `n` elements. If that leaves most of its memory unused, because the
+# allocation was based on a too large `nb` or hint, reallocate `v`, so the returned
+# vector does not keep the unused memory alive.
+function truncate_result!(v::Vector{UInt8}, n::Int)
+    len = length(v)
+    resize!(v, n)
+    n < len ÷ 2 && sizehint!(v, n)
+    return v
 end
 
 """
@@ -217,28 +273,56 @@ function Base.readbytes!(x::AbstractBufReader, b::Vector{UInt8}, nb::Integer = l
     n_read = read_all!(x, @inbounds MemoryViews.truncate(MemoryView(b), n_fill))
     # Only grow `b` if it was filled without reaching EOF.
     n_read == n_fill < nb || return n_read
-    return readbytes_grow!(x, b, n_read, nb)
+    return readbytes_grow!(x, b, nb)
 end
 
-# `b` has been filled with `n_read` bytes, with `n_read == length(b) < nb`.
-# Read up to `nb` bytes in total into `b`, growing it as needed, and shrink it back
-# to `max(n_read, initial length)`. Return the number of bytes read in total.
-@noinline function readbytes_grow!(x::AbstractBufReader, b::Vector{UInt8}, n_read::Int, nb::Int)::Int
-    initial_len = length(b)
+# `b` is full of read bytes, and `length(b) < nb`.
+# Read up to `nb` bytes in total into `b`, growing it as needed, and shrink it to the
+# number of bytes read. Return the number of bytes read in total.
+@noinline function readbytes_grow!(x::AbstractBufReader, b::Vector{UInt8}, nb::Int)::Int
+    n_read = length(b)
+    # Fast path: The buffer holds all wanted bytes
+    buffer = get_buffer(x)::ImmutableMemoryView{UInt8}
+    if nb - n_read ≤ length(buffer)
+        resize!(b, nb)
+        copyto!(@inbounds(MemoryView(b)[(n_read + 1):nb]), @inbounds(MemoryViews.truncate(buffer, nb - n_read)))
+        @inbounds consume(x, nb - n_read)
+        return nb
+    end
+    # Only use the hint once
+    use_hint = true
     while n_read < nb
         if n_read == length(b)
-            # Grow geometrically, so we do amortized O(1) work per byte, but by at
-            # least the buffered bytes, which are copied into `b` by the next `read_into!`
-            new_len = max(overallocation_size(n_read % UInt), n_read + length(get_buffer(x)))
-            resize!(b, min(nb, new_len))
+            # Check for EOF before growing `b`, such that `b` is not reallocated needlessly
+            # when it has exactly the size of the remaining data, e.g. when it was sized by
+            # an accurate hint. This is cheap, as the filled bytes are then copied to `b`.
+            buffer = get_nonempty_buffer(x)::Union{Nothing, ImmutableMemoryView{UInt8}}
+            buffer === nothing && break
+            resize!(b, n_read + grow_size(x, nb - n_read, n_read, length(buffer), use_hint))
+            use_hint = false
         end
         dst = @inbounds MemoryView(b)[(n_read + 1):end]
         n = read_into!(x, dst)
         iszero(n) && break
         n_read += n
     end
-    resize!(b, max(n_read, initial_len))
+    resize!(b, n_read)
     return n_read
+end
+
+# Number of bytes to grow a vector holding `n_read` bytes by, when up to `n_wanted` more
+# bytes are to be read from `x`, which has `n_buffered > 0` bytes in its buffer.
+function grow_size(x::AbstractBufReader, n_wanted::Int, n_read::Int, n_buffered::Int, use_hint::Bool)::Int
+    # If the buffer holds all wanted bytes, skip the hint, which may do a system call
+    n_wanted ≤ n_buffered && return n_wanted
+    # The hint is only used once: If it is too small, and we kept growing by it,
+    # the growth might not be geometric, and reading would no longer be O(n).
+    # A hint smaller than the buffered bytes is wrong, so we ignore it.
+    hint = use_hint ? remaining_bytes_hint(x)::Union{Nothing, Int} : nothing
+    hint !== nothing && hint ≥ n_buffered && return min(n_wanted, hint)
+    # Grow geometrically, so we do amortized O(1) work per byte, but by at
+    # least the buffered bytes, which are copied into the vector by the next `read_into!`
+    return min(n_wanted, max(overallocation_size(n_read % UInt) - n_read, n_buffered))
 end
 
 """

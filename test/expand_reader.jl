@@ -561,3 +561,100 @@ end
     end
     @test get_buffer(io) == b"abcdefghij"
 end
+
+@testset "remaining_bytes_hint" begin
+    hint = BufferIO.remaining_bytes_hint
+    @test hint(ExpandReader(BoundedReader("abc", 2))) === nothing
+    @test hint(ExpandReader(CursorReader("abc"))) == 3
+
+    # The hint must be exact through switches between own buffer and inner's buffer,
+    # including when the user has consumed bytes from own buffer that inner still buffers.
+    data = rand(UInt8, 200)
+    for blocksize in (1, 3, 7)
+        io = ExpandReader(BlockReader(data, blocksize))
+        consumed = 0
+        seen_own = false
+        for _ in 1:2000
+            @test hint(io) == length(data) - consumed
+            seen_own |= io.serving_own
+            r = rand(1:4)
+            if r == 1
+                fill_buffer(io)
+            elseif r == 2
+                get_nonempty_buffer(io, rand(1:20))
+            else
+                n = rand(0:length(get_buffer(io)))
+                consume(io, n)
+                consumed += n
+            end
+            consumed == length(data) && break
+        end
+        @test seen_own
+        @test read(io) == data[(consumed + 1):end]
+        @test hint(io) == 0
+    end
+
+    io = ExpandReader(BlockReader(data, 3))
+    close(io)
+    @test hint(io) === nothing
+
+    # An inner hint which is too small must not make the hint smaller than the bytes
+    # buffered in `io`. Here, the user consumes bytes from own buffer which inner still
+    # buffers, which would make the hint negative.
+    io = ExpandReader(HintedReader(BlockReader(data, 10), -1000))
+    @test length(get_nonempty_buffer(io, 25)) ≥ 25
+    @test io.serving_own
+    n = length(get_buffer(io)) - 3
+    consume(io, n)
+    @test io.debt > length(io.buffer)
+    @test hint(io) == 3
+    @test read(io) == data[(n + 1):end]
+end
+
+@testset "read_into!" begin
+    data = rand(UInt8, 500)
+
+    # Serving inner's buffer
+    io = ExpandReader(BlockReader(data, 7))
+    dst = zeros(UInt8, 10)
+    @test read_into!(io, MemoryView(dst)) == 7
+    @test !io.serving_own
+    @test dst[1:7] == data[1:7]
+
+    # Serving own buffer
+    @test length(get_nonempty_buffer(io, 20)) ≥ 20
+    @test io.serving_own
+    @test read_into!(io, MemoryView(dst)) == 10
+    @test dst == data[8:17]
+    @test position(io) == 17
+
+    # Interleave read_into! with operations that switch to and from the own buffer
+    for blocksize in (1, 3, 7), dstsize in (0, 1, 5, 50)
+        io = ExpandReader(BlockReader(data, blocksize))
+        result = UInt8[]
+        for _ in 1:10_000
+            if rand(Bool)
+                get_nonempty_buffer(io, rand(1:20))
+            end
+            dst = zeros(UInt8, dstsize)
+            n = read_into!(io, MemoryView(dst))
+            @test n ≤ dstsize
+            append!(result, dst[1:n])
+            @test position(io) == length(result)
+            dstsize > 0 && iszero(n) && break
+        end
+        dstsize > 0 && @test result == data
+    end
+
+    # Forwarding to inner lets a BufReader read directly into `dst`
+    io = ExpandReader(BufReader(IOBuffer(data), 10))
+    dst = zeros(UInt8, 100)
+    @test read_into!(io, MemoryView(dst)) == 100
+    @test dst == data[1:100]
+    @test read(io) == data[101:end]
+
+    io = ExpandReader(BlockReader(data, 3))
+    close(io)
+    @test read_into!(io, MemoryView(UInt8[])) == 0
+    @test_throws IOError read_into!(io, MemoryView(zeros(UInt8, 3)))
+end

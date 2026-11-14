@@ -541,3 +541,90 @@ end
         @test n_moved ≤ length(data)
     end
 end
+
+@testset "remaining_bytes_hint" begin
+    hint = BufferIO.remaining_bytes_hint
+
+    @testset "Base types" begin
+        io = IOBuffer("abcdef")
+        @test hint(io) == 6
+        @test read(io, 2) == b"ab"
+        @test hint(io) == 4
+        close(io)
+        @test hint(io) === nothing
+
+        @test hint(devnull) == 0
+
+        s = Base.SecretBuffer("abc")
+        @test hint(s) == 3
+        read(s, UInt8)
+        @test hint(s) == 2
+        Base.shred!(s)
+
+        # Files which are not regular files have no meaningful size
+        if Sys.isunix()
+            @test open(hint, "/dev/null") === nothing
+        end
+        # Files in procfs have a reported size of zero, despite having content
+        if Sys.islinux()
+            open("/proc/self/status") do io
+                @test hint(io) === nothing
+                @test !isempty(read(BufReader(io)))
+            end
+        end
+    end
+
+    @testset "IOStream" begin
+        mktemp() do path, stream
+            # A size of zero is either an empty file, or an unknown size
+            @test hint(stream) === nothing
+            write(stream, "abcdef")
+            flush(stream)
+            seekstart(stream)
+            @test hint(stream) == 6
+            @test read(stream, 2) == b"ab"
+            @test hint(stream) == 4
+            seekend(stream)
+            @test hint(stream) == 0
+
+            seekstart(stream)
+            reader = BufReader(stream, 4)
+            @test hint(reader) == 6
+            fill_buffer(reader)
+            @test hint(reader) == 6
+            consume(reader, 3)
+            @test hint(reader) == 3
+            @test read(reader) == b"def"
+            @test hint(reader) == 0
+            close(reader)
+            @test hint(reader) === nothing
+            @test hint(stream) === nothing
+        end
+
+        # Reading a file larger than the buffer, where the hint is accurate
+        mktemp() do path, stream
+            data = rand(UInt8, 100_000)
+            write(stream, data)
+            close(stream)
+            for bufsize in (1, 1000, 65536, 200_000)
+                @test open(io -> read(BufReader(io, bufsize)), path) == data
+                @test open(io -> read(BufReader(io, bufsize), String), path) == String(copy(data))
+                @test open(io -> read(BufReader(io, bufsize), 150_000), path) == data
+            end
+        end
+    end
+
+    @testset "BufReader" begin
+        reader = BufReader(IOBuffer("abcdefghij"), 3)
+        @test hint(reader) == 10
+        fill_buffer(reader)
+        @test hint(reader) == 10
+        @test read(reader, 4) == b"abcd"
+        @test hint(reader) == 6
+        close(reader)
+        @test hint(reader) === nothing
+
+        # Inner IO without a hint
+        @test hint(BufReader(IOReader(GenericBufReader("abc")))) === nothing
+    end
+end

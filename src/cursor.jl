@@ -115,3 +115,5 @@ relative_seek(x::CursorReader, delta::Int) = seek(x, delta + x.offset)
 read_all!(io::CursorReader, dst::MutableMemoryView{UInt8}) = read_into!(io, dst)
 
 is_expandable(::Type{CursorReader}) = true
+
+remaining_bytes_hint(x::CursorReader) = length(get_buffer(x))

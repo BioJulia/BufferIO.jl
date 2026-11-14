@@ -325,3 +325,15 @@ end
     cursor = CursorReader("abc")
     @test take_inner(IOReader(cursor)) === cursor
 end
+
+@testset "remaining_bytes_hint" begin
+    @test BufferIO.remaining_bytes_hint(IOReader(CursorReader("abc"))) == 3
+    @test BufferIO.remaining_bytes_hint(IOReader(GenericBufReader("abc"))) === nothing
+
+    # A BufReader wrapping an IOReader gets the hint from the inner reader
+    reader = BufReader(IOReader(CursorReader("abcdef")), 2)
+    @test BufferIO.remaining_bytes_hint(reader) == 6
+    @test read(reader, 3) == b"abc"
+    @test BufferIO.remaining_bytes_hint(reader) == 3
+    @test BufferIO.remaining_bytes_hint(BufReader(IOReader(GenericBufReader("abc")))) === nothing
+end

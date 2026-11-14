@@ -39,7 +39,8 @@ export AbstractBufReader,
     relative_seek,
     take_inner,
     drop_own,
-    expandable
+    expandable,
+    remaining_bytes_hint
 
 public LineViewIterator, is_expandable, Testing
 
@@ -221,6 +222,7 @@ for details of the implementation:
 * `Base.position(io::T)`
 * `resize_buffer(io::T, ::Int)`
 * `BufferIO.is_expandable(::Type{T})`
+* `remaining_bytes_hint(io::T)`
 * `unsafe_read_all!(io::T, ::Ptr{UInt8}, ::Int)`
 * `get_nonempty_buffer(io::T, ::Int)`
 
@@ -1031,6 +1033,74 @@ true
 """
 expandable(io::AbstractBufReader) = is_expandable(typeof(io)) ? io : ExpandReader(io)
 expandable(io::AbstractBufWriter) = is_expandable(typeof(io)) ? io : ExpandWriter(io)
+
+"""
+    remaining_bytes_hint(io::Union{AbstractBufReader, IO})::Union{Nothing, Int}
+
+Return an estimate of the number of bytes remaining in `io` before EOF, including the
+bytes buffered in `io`, or `nothing` if no estimate is available.
+A hint of zero means `io` is estimated to be at EOF, not that the size is unknown.
+The hint must not be negative.
+If `io` implements `filesize` and `position`, the hint should usually be
+`filesize(io) - position(io)`.
+
+This is only a hint, which callers can use to e.g. allocate memory up front. The actual
+number of remaining bytes may be smaller or larger than the hint, for example if the
+underlying file is modified concurrently, or if the operating system reports an
+inaccurate file size. Hence, callers must remain correct when the hint is wrong.
+
+Calling this function must not change the state of `io`. In particular, it must not
+fill the buffer of `io`, or read from it.
+It should be cheap compared to reading from `io`, but it may query metadata, such as the
+size of an underlying file, with a system call.
+
+# Extended help
+The default implementation returns `nothing`.
+
+Methods are defined for the readers in BufferIO, and for the some `Base.IO` types.
+Users may add it to their own `Base.IO` subtypes to allow `BufReader`s wrapping their
+type to make use of the hint.
+
+# Examples
+```jldoctest
+julia> reader = CursorReader("abcdef");
+
+julia> remaining_bytes_hint(reader)
+6
+
+julia> discard_exact(reader, 6); remaining_bytes_hint(reader)
+0
+
+julia> reader = BufReader(IOBuffer("abc")); fill_buffer(reader);
+
+julia> remaining_bytes_hint(reader) # includes buffered bytes
+3
+
+julia> remaining_bytes_hint(BufferIO.Testing.BoundedReader("abc", 2)) === nothing # unknown
+true
+```
+"""
+remaining_bytes_hint(::Union{AbstractBufReader, IO}) = nothing
+
+remaining_bytes_hint(io::IOBuffer) = isreadable(io) ? Int(bytesavailable(io))::Int : nothing
+remaining_bytes_hint(io::Base.SecretBuffer) = Int(bytesavailable(io))::Int
+remaining_bytes_hint(::typeof(devnull)) = 0
+
+function remaining_bytes_hint(io::IOStream)::Union{Nothing, Int}
+    isopen(io) || return nothing
+    st = try
+        stat(fd(io))
+    catch e
+        e isa Base.IOError || rethrow()
+        return nothing
+    end
+    # Files that are not regular files, like pipes and terminals, have no meaningful size.
+    # Some regular files, like those in procfs, have a reported size of zero despite having
+    # content, so a zero size could be either an empty file or an unknown size.
+    size = Int(filesize(st))::Int
+    (isfile(st) && size > 0) || return nothing
+    return max(0, size - Int(position(io))::Int)
+end
 
 include("base.jl")
 include("bufreader.jl")

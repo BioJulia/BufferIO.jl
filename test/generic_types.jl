@@ -62,6 +62,7 @@ Base.close(x::BlockReader) = (x.closed = true; nothing)
 Base.isopen(::BlockReader) = true
 Base.position(x::BlockReader) = x.pos
 Base.filesize(x::BlockReader) = length(x.data)
+BufferIO.remaining_bytes_hint(x::BlockReader) = length(x.data) - x.pos
 
 function Base.seek(x::BlockReader, offset::Int)
     in(offset, 0:length(x.data)) || throw(IOError(IOErrorKinds.BadSeek))
@@ -89,6 +90,28 @@ end
 
 Base.close(x::ScriptedReader) = close(x.x)
 Base.isopen(x::ScriptedReader) = isopen(x.x)
+
+# Reader wrapping another reader, whose `remaining_bytes_hint` is off by `error` bytes
+# (but not negative), or `nothing` if `error` is `nothing`.
+# When constructed from data, the inner reader fills its buffer in small increments.
+struct HintedReader{T <: AbstractBufReader} <: AbstractBufReader
+    x::T
+    error::Union{Nothing, Int}
+end
+
+HintedReader(data, error::Union{Nothing, Int}) = HintedReader(BufReader(IOBuffer(data), 3), error)
+
+BufferIO.get_buffer(x::HintedReader) = get_buffer(x.x)
+BufferIO.consume(x::HintedReader, n::Int) = consume(x.x, n)
+BufferIO.fill_buffer(x::HintedReader) = fill_buffer(x.x)
+
+function BufferIO.remaining_bytes_hint(x::HintedReader)
+    x.error === nothing && return nothing
+    return max(0, BufferIO.remaining_bytes_hint(x.x) + x.error)
+end
+
+Base.close(x::HintedReader) = close(x.x)
+Base.isopen(x::HintedReader) = isopen(x.x)
 
 # Writer with a fixed capacity, which can never make room for more data.
 mutable struct FixedWriter <: AbstractBufWriter
