@@ -1,5 +1,9 @@
-# Unreleased
+# 0.3.4
 ## New features
+* Add and export `remaining_bytes_hint(io)`, which returns an estimate of the number of
+  bytes remaining in a reader or `IO`, or `nothing` if unknown. It is implemented for
+  the readers of BufferIO, and for `IOBuffer`, `IOStream`, `Base.SecretBuffer` and
+  `devnull`, and can be implemented for other readers and `IO` types.
 * Add `ExpandWriter`, which wraps an `AbstractBufWriter` and provides an infinitely
   expandable buffer, analogous to `ExpandReader`.
 * `BufferIO.is_expandable` and `expandable` now also work on `AbstractBufWriter`s.
@@ -7,7 +11,6 @@
   `get_nonempty_buffer(io, min_size)` never returns `nothing`.
   `is_expandable` is `true` for `BufWriter`, `VecWriter` and `ExpandWriter`, and
   `expandable` wraps other writers in an `ExpandWriter`.
-* `drop_own` now also works on `ExpandWriter`.
 
 # 0.3.3
 ## New features

@@ -41,6 +41,8 @@ end
 
 Base.read(x::IOReader, ::Type{String}) = read(x.x, String)
 
+remaining_bytes_hint(x::IOReader) = remaining_bytes_hint(x.x)
+
 function Base.unsafe_read(x::IOReader, p::Ptr{UInt8}, n::UInt)
     n_read = unsafe_read_all!(x.x, p, Int(n)::Int)
     n_read == n || throw(EOFError())

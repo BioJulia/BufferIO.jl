@@ -68,6 +68,12 @@ get_memory(x::BufReader) = x.ref.mem
 default_buffer_size(::IO) = 8192
 default_buffer_size(::IOStream) = 65536
 
+function remaining_bytes_hint(x::BufReader)::Union{Nothing, Int}
+    x.is_closed && return nothing
+    inner = remaining_bytes_hint(x.io)::Union{Nothing, Int}
+    return inner === nothing ? nothing : inner + length(get_buffer(x))
+end
+
 function BufReader(io::IO, buffer_size::Int = default_buffer_size(io))
     if buffer_size < 1
         throw(ArgumentError("BufReader buffer size must be at least 1"))

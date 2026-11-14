@@ -142,3 +142,15 @@ end
     consume(io, 1)
     @test eof(io)
 end
+
+@testset "remaining_bytes_hint" begin
+    io = CursorReader("abcdef")
+    @test BufferIO.remaining_bytes_hint(io) == 6
+    consume(io, 2)
+    @test BufferIO.remaining_bytes_hint(io) == 4
+    seekend(io)
+    @test BufferIO.remaining_bytes_hint(io) == 0
+    seek(io, 1)
+    @test BufferIO.remaining_bytes_hint(io) == 5
+    @test BufferIO.remaining_bytes_hint(CursorReader("")) == 0
+end

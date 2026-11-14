@@ -90,6 +90,65 @@ end
     @test read(io, 500) == b"abcde"
 end
 
+@testset "Reading with inaccurate remaining_bytes_hint" begin
+    @test BufferIO.remaining_bytes_hint(GenericBufReader("abc")) === nothing
+    @test BufferIO.remaining_bytes_hint(IOBuffer("abc")) == 3
+    @test remaining_bytes_hint === BufferIO.remaining_bytes_hint # exported
+
+    errors = (nothing, -1000, -7, -1, 0, 1, 7, 1000)
+    for len in (0, 1, 2, 3, 10, 100), error in errors, skip in (0, 1)
+        skip > len && continue
+        data = rand(UInt8, len)
+        rest = data[(skip + 1):end]
+        new_reader() = (r = HintedReader(data, error); discard_exact(r, skip); r)
+
+        @test read(new_reader()) == rest
+        @test read(new_reader(), String) == String(copy(rest))
+
+        for nb in (0, 1, 2, length(rest) - 1, length(rest), length(rest) + 1, 1000)
+            nb < 0 && continue
+            reader = new_reader()
+            @test read(reader, nb) == rest[1:min(nb, end)]
+            @test read(reader) == rest[(min(nb, end) + 1):end]
+
+            for initial_len in (0, 1, nb)
+                reader = new_reader()
+                b = fill(0xff, initial_len)
+                n = readbytes!(reader, b, nb)
+                @test n == min(nb, length(rest))
+                @test length(b) == max(n, initial_len)
+                @test b[1:n] == rest[1:n]
+                @test read(reader) == rest[(n + 1):end]
+            end
+        end
+    end
+end
+
+@testset "read(::T, ::Integer) with large nb" begin
+    cap = BufferIO.MAX_UNHINTED_READ_ALLOCATION
+    data = rand(UInt8, cap + 12345)
+    # Neither reader has a hint, and BlockReader can't expand its buffer
+    for new_reader in (() -> GenericBufReader(data), () -> BlockReader(data, 100_000))
+        for nb in (cap - 1, cap, cap + 1, length(data), length(data) + 1, typemax(Int))
+            reader = new_reader()
+            @test read(reader, nb) == data[1:min(nb, end)]
+            @test read(reader) == data[(min(nb, end) + 1):end]
+        end
+    end
+
+    # A large `nb` on a small reader neither allocates `nb` bytes, nor returns a vector
+    # which keeps a large allocation alive.
+    v = read(GenericBufReader("abc"), typemax(Int))
+    @test v == b"abc"
+    @test Base.summarysize(v) < 1000
+    v = read(HintedReader("abc", 1_000_000), 2_000_000)
+    @test v == b"abc"
+    @test Base.summarysize(v) < 1000
+    v = read(HintedReader("abc", 1_000_000))
+    @test v == b"abc"
+    @test Base.summarysize(v) < 1000
+end
+
 @testset "read(::T, String)" begin
     io = GenericBufReader([0x01 0x03; 0x02 0x04])
     @test read(io, String) === "\1\2\3\4"

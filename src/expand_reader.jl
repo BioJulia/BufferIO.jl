@@ -98,6 +98,24 @@ function fill_buffer(io::ExpandReader)::Int
     return n === nothing ? start_serving_own(io) : n
 end
 
+# When serving inner's buffer, the position of `io` and inner is the same, so we can
+# forward to inner, which may read directly into `dst`, bypassing its buffer.
+function read_into!(io::ExpandReader, dst::MutableMemoryView{UInt8})::Int
+    io.serving_own && return read_into_own!(io, dst)
+    return read_into!(io.inner, dst)
+end
+
+# Same as the generic `read_into!`. Also used when closed, since a closed `io` serves
+# an empty own buffer, and so filling it throws.
+@noinline function read_into_own!(io::ExpandReader, dst::MutableMemoryView{UInt8})::Int
+    isempty(dst) && return 0
+    src = get_nonempty_buffer(io)::Union{Nothing, ImmutableMemoryView{UInt8}}
+    isnothing(src) && return 0
+    n_read = copyto_start!(dst, src)
+    @inbounds consume(io, n_read)
+    return n_read
+end
+
 @noinline throw_closed() = throw(IOError(IOErrorKinds.ClosedIO))
 
 @noinline function throw_invalid_inner()
@@ -369,6 +387,15 @@ end
 function Base.position(io::ExpandReader)
     io.closed && throw_closed()
     return Int(position(io.inner))::Int - n_unpaid(io)
+end
+
+function remaining_bytes_hint(io::ExpandReader)::Union{Nothing, Int}
+    io.closed && return nothing
+    inner = remaining_bytes_hint(io.inner)::Union{Nothing, Int}
+    inner === nothing && return nothing
+    # If inner's hint is too small, this sum can be smaller than the bytes buffered in `io`,
+    # or even negative, if the user has consumed bytes that inner has not.
+    return max(length(get_buffer(io)), inner + n_unpaid(io))
 end
 
 function Base.seek(io::ExpandReader, offset::Int)
