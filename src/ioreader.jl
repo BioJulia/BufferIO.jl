@@ -39,7 +39,8 @@ for f in [
     @eval Base.$(f)(x::IOReader) = $(f)(x.x)
 end
 
-Base.read(x::IOReader, ::Type{String}) = read(x.x, String)
+# Note: Do not define `read(::IOReader, ::Type{String})`. Base's fallback is just as fast,
+# and the method would invalidate compiled code calling `read(::IO, String)`.
 
 function Base.unsafe_read(x::IOReader, p::Ptr{UInt8}, n::UInt)
     n_read = unsafe_read_all!(x.x, p, Int(n)::Int)
