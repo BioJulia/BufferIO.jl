@@ -65,3 +65,34 @@ consume
 get_unflushed
 get_nonempty_buffer(::AbstractBufWriter, ::Int)
 ```
+
+## Writers with a limited buffer
+Some writers can't grow their buffer beyond a certain size, for example writers which
+compress data in fixed-size blocks.
+Generic code which needs a minimum amount of contiguous buffer space, e.g. to encode a
+value directly into the buffer, can't assume that an arbitrary `AbstractBufWriter`
+can provide it.
+
+The trait [`BufferIO.is_expandable`](@ref) tells whether a writer type can grow its
+buffer to any size. For such writers, `grow_buffer` never returns zero, and
+`get_nonempty_buffer(io, min_size)` never returns `nothing`.
+The function [`expandable`](@ref) returns its argument if it is already expandable,
+and else wraps it in an [`ExpandWriter`](@ref), which is expandable:
+
+```julia
+function write_encoded(io::AbstractBufWriter, x)
+    io = expandable(io)
+    n = encoded_size(x)
+    # Statically known not to be `nothing`
+    buffer = get_nonempty_buffer(io, n)::MutableMemoryView{UInt8}
+    encode!(buffer, x)
+    consume(io, n)
+    flush(io)
+    return n
+end
+```
+
+```@docs; canonical=false
+BufferIO.is_expandable
+expandable
+```

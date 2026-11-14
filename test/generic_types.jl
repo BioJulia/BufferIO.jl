@@ -110,3 +110,69 @@ end
 Base.flush(::FixedWriter) = nothing
 Base.close(::FixedWriter) = nothing
 Base.isopen(::FixedWriter) = true
+
+# Writer with a fixed-size buffer, which can never be expanded, like e.g. a block
+# compressor. Buffered bytes are written to `data` at position `pos`, overwriting existing
+# bytes. `data` can't grow beyond `max_size` bytes, after which the writer is full.
+# Supports seeking.
+mutable struct BlockWriter <: AbstractBufWriter
+    const data::Vector{UInt8}
+    const buffer::Memory{UInt8}
+    const max_size::Int
+    # Position in `data` of the first buffered byte
+    pos::Int
+    n_buffered::Int
+    closed::Bool
+end
+
+function BlockWriter(blocksize::Int; max_size::Int = typemax(Int))
+    blocksize < 1 && error("Bad parameterization")
+    return BlockWriter(UInt8[], Memory{UInt8}(undef, blocksize), max_size, 0, 0, false)
+end
+
+function BufferIO.get_buffer(x::BlockWriter)
+    stop = clamp(x.max_size - x.pos, x.n_buffered, length(x.buffer))
+    return MemoryView(x.buffer)[(x.n_buffered + 1):stop]
+end
+
+function write_buffered!(x::BlockWriter)
+    x.closed && throw(IOError(IOErrorKinds.ClosedIO))
+    n = x.n_buffered
+    length(x.data) < x.pos + n && resize!(x.data, x.pos + n)
+    copyto!(x.data, x.pos + 1, x.buffer, 1, n)
+    x.pos += n
+    x.n_buffered = 0
+    return nothing
+end
+
+function BufferIO.grow_buffer(x::BlockWriter)
+    n_old = length(get_buffer(x))
+    write_buffered!(x)
+    return length(get_buffer(x)) - n_old
+end
+
+function BufferIO.consume(x::BlockWriter, n::Int)
+    in(n, 0:length(get_buffer(x))) || throw(IOError(IOErrorKinds.ConsumeBufferError))
+    x.n_buffered += n
+    return nothing
+end
+
+Base.flush(x::BlockWriter) = write_buffered!(x)
+
+function Base.close(x::BlockWriter)
+    x.closed && return nothing
+    write_buffered!(x)
+    x.closed = true
+    return nothing
+end
+
+Base.isopen(x::BlockWriter) = !x.closed
+Base.position(x::BlockWriter) = x.pos + x.n_buffered
+Base.filesize(x::BlockWriter) = max(length(x.data), position(x))
+
+function Base.seek(x::BlockWriter, offset::Int)
+    in(offset, 0:filesize(x)) || throw(IOError(IOErrorKinds.BadSeek))
+    write_buffered!(x)
+    x.pos = offset
+    return x
+end

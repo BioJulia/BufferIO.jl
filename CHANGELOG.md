@@ -1,3 +1,14 @@
+# Unreleased
+## New features
+* Add `ExpandWriter`, which wraps an `AbstractBufWriter` and provides an infinitely
+  expandable buffer, analogous to `ExpandReader`.
+* `BufferIO.is_expandable` and `expandable` now also work on `AbstractBufWriter`s.
+  A writer is expandable if `grow_buffer` never returns zero, so that
+  `get_nonempty_buffer(io, min_size)` never returns `nothing`.
+  `is_expandable` is `true` for `BufWriter`, `VecWriter` and `ExpandWriter`, and
+  `expandable` wraps other writers in an `ExpandWriter`.
+* `drop_own` now also works on `ExpandWriter`.
+
 # 0.3.3
 ## New features
 * Add `Base.take!(::VecWriter)`, which returns the written data as a mutable view,
