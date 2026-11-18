@@ -176,7 +176,17 @@ end
 
 # Read at least one byte from the underlying IO into `dst`, which must be nonempty.
 # The underlying IO must be known to not be EOF.
+# Only read the bytes that are available. `readbytes!` reads until `dst` is full or EOF,
+# so for e.g. a pipe or socket, reading into all of `dst` would wait for bytes that may
+# never come, e.g. when the other end waits for a reply. Since `io` is not EOF, at least
+# one byte is available.
+# An IO without `bytesavailable` can only be read into all of `dst`, see the docstring of
+# `BufReader`. The `hasmethod` call is constant-folded.
 function read_nonzero!(io::IO, dst::MutableMemoryView{UInt8})::Int
+    if hasmethod(bytesavailable, Tuple{typeof(io)})
+        n_available = clamp(Int(bytesavailable(io))::Int, 1, length(dst))
+        dst = @inbounds MemoryViews.truncate(dst, n_available)
+    end
     n_read = 0
     attempts = 0
     while n_read == 0

@@ -451,9 +451,13 @@ end
         @test read(reader) == data[101:end]
         close(reader)
 
-        # Full buffer at EOF does not grow the buffer
+        # Full buffer at EOF does not grow the buffer. Filling reads only the bytes that
+        # are available, which, before Julia 1.12, are those in the IOStream's buffer,
+        # so it may take several fills to fill the buffer.
         reader = BufReader(open(path), length(data))
-        @test fill_buffer(reader) == length(data)
+        while length(get_buffer(reader)) < length(data)
+            @test fill_buffer(reader) > 0
+        end
         @test iszero(fill_buffer(reader))
         @test length(BufferIO.get_memory(reader)) == length(data)
         close(reader)
@@ -627,4 +631,69 @@ end
         # Inner IO without a hint
         @test hint(BufReader(IOReader(GenericBufReader("abc")))) === nothing
     end
+end
+
+# An IO that only implements `eof` and `readbytes!`, not `bytesavailable`
+mutable struct ReadbytesOnlyIO <: IO
+    data::Vector{UInt8}
+    pos::Int
+end
+ReadbytesOnlyIO(data) = ReadbytesOnlyIO(collect(UInt8, data), 1)
+Base.eof(x::ReadbytesOnlyIO) = x.pos > length(x.data)
+function Base.readbytes!(x::ReadbytesOnlyIO, v::MutableMemoryView{UInt8}, nb::Integer = length(v))
+    n = min(Int(nb), length(v), length(x.data) - x.pos + 1)
+    copyto!(v[1:n], MemoryView(x.data)[x.pos:(x.pos + n - 1)])
+    x.pos += n
+    return n
+end
+
+@testset "Filling doesn't wait for more bytes than are available" begin
+    # Run `f` in a task, and return its result, or `:timeout` if it waits too long.
+    # A waiting task is released when its stream is closed below.
+    function within_timeout(f)
+        task = @async f()
+        timedwait(() -> istaskdone(task), 10.0) === :ok || return :timeout
+        return fetch(task)
+    end
+    function pipe_ends()
+        p = Pipe()
+        Base.link_pipe!(p; reader_supports_async = true, writer_supports_async = true)
+        return (p.in, p.out)
+    end
+    for (name, (w, r)) in (("BufferStream", (s = Base.BufferStream(); (s, s))), ("Pipe", pipe_ends()))
+        @testset "$name" begin
+            # The other end waits after writing, e.g. for a reply, so the bytes that
+            # arrived must be returned without waiting for the buffer to be full
+            reader = BufReader(r, 64)
+            write(w, "ab")
+            @test within_timeout(() -> fill_buffer(reader)) == 2
+            @test get_buffer(reader) == b"ab"
+            consume(reader, 1)
+            write(w, "cde")
+            @test within_timeout(() -> fill_buffer(reader)) == 3
+            @test get_buffer(reader) == b"bcde"
+            # A minimum size waits for exactly that many bytes
+            write(w, "fg")
+            @test within_timeout(() -> length(get_nonempty_buffer(reader, 6))) == 6
+            @test get_buffer(reader) == b"bcdefg"
+            # Reading into memory larger than the buffer bypasses it, and returns the
+            # bytes that arrived
+            consume(reader, 6)
+            write(w, "hij")
+            dst = MemoryView(zeros(UInt8, 100))
+            @test within_timeout(() -> read_into!(reader, dst)) == 3
+            @test dst[1:3] == b"hij"
+            close(w)
+            @test within_timeout(() -> fill_buffer(reader)) == 0
+            close(r)
+        end
+    end
+
+    # Without `bytesavailable`, the IO is still read with `readbytes!`
+    @test !hasmethod(bytesavailable, Tuple{ReadbytesOnlyIO})
+    reader = BufReader(ReadbytesOnlyIO(1:10), 4)
+    @test fill_buffer(reader) == 4
+    @test get_buffer(reader) == 1:4
+    @test read(reader) == 1:10
+    @test eof(reader)
 end

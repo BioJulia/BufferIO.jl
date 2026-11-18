@@ -1,3 +1,11 @@
+# Unreleased
+## Bugfixes
+* Filling the buffer of a `BufReader` no longer waits until the buffer is full or its
+  `IO` is EOF, if the `IO` has fewer bytes available, e.g. on a pipe or a socket.
+  It now reads at most `bytesavailable(io)` bytes, if the `IO` implements
+  `bytesavailable`, but at least one. Previously, reading from a stream whose other end
+  waits for a reply could wait forever.
+
 # 0.3.4
 ## New features
 * Add and export `remaining_bytes_hint(io)`, which returns an estimate of the number of
