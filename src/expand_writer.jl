@@ -242,13 +242,11 @@ function Base.close(io::ExpandWriter)
         ImmutableMemoryView(Memory{UInt8}())
     end
     mark_closed!(io)
-    try
-        if write_to_inner(io.inner, pending) < length(pending)
+    # Close inner even if writing failed, since `io` can't be closed again.
+    call_and_close(io.inner) do inner
+        if write_to_inner(inner, pending) < length(pending)
             throw(IOError(IOErrorKinds.WriterFull))
         end
-    finally
-        # Close inner even if writing failed, since `io` can't be closed again.
-        close(io.inner)
     end
     return nothing
 end

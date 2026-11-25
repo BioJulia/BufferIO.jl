@@ -1102,6 +1102,23 @@ function remaining_bytes_hint(io::IOStream)::Union{Nothing, Int}
     return max(0, size - Int(position(io))::Int)
 end
 
+# Return `f(io)`, closing `io` also if `f` throws.
+# This does not use `finally`, because if `f` and `close` both threw, the error from `close`
+# would replace the one from `f`, which is the root cause.
+function call_and_close(f, io::Union{IO, AbstractBufReader, AbstractBufWriter})
+    result = try
+        f(io)
+    catch
+        try
+            close(io)
+        catch
+        end
+        rethrow()
+    end
+    close(io)
+    return result
+end
+
 include("base.jl")
 include("bufreader.jl")
 include("bufwriter.jl")

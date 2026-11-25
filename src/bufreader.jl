@@ -104,13 +104,9 @@ ERROR: ArgumentError: read failed, IOBuffer is not readable
 [...]
 ```
 """
-function BufReader(f, io::IO, buffer_size::Int = default_buffer_size(io))
-    reader = BufReader(io, buffer_size)
-    return try
-        f(reader)
-    finally
-        close(reader)
-    end
+function BufReader(f::F, io::IO, buffer_size::Int = default_buffer_size(io)) where {F}
+    # The type parameter forces specialization, since `f` is only passed through
+    return call_and_close(f, BufReader(io, buffer_size))
 end
 
 function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}

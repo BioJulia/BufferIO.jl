@@ -103,13 +103,9 @@ julia> iswritable(io) # closing writer closes io also
 false
 ```
 """
-function BufWriter(f, io::IO, buffer_size::Int = 4096)
-    writer = BufWriter(io, buffer_size)
-    return try
-        f(writer)
-    finally
-        close(writer)
-    end
+function BufWriter(f::F, io::IO, buffer_size::Int = 4096) where {F}
+    # The type parameter forces specialization, since `f` is only passed through
+    return call_and_close(f, BufWriter(io, buffer_size))
 end
 
 """
@@ -384,12 +380,10 @@ function Base.close(x::BufWriter)
     # IO throws. This keeps the content of the memory.
     n_buffered = x.consumed
     mark_closed!(x)
-    try
+    # Per the docstring of `close(::IO)`, closing flushes the underlying IO.
+    # Close it even if writing failed, since `x` can't be closed again.
+    call_and_close(x.io) do _
         iszero(n_buffered) || write_buffered(x, n_buffered)
-    finally
-        # Per the docstring of `close(::IO)`, this flushes the underlying IO.
-        # Close it even if writing failed, since `x` can't be closed again.
-        close(x.io)
     end
     return nothing
 end
