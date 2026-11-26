@@ -29,6 +29,27 @@ end
 
 take_inner(x::IOWriter) = x.x
 
+"""
+    get_inner(io::IOWriter{T})::T
+
+Return the `AbstractBufWriter` wrapped by `io`.
+
+An `IOWriter` has no buffer or state of its own, so the wrapped writer may be used freely,
+and `io` reflects any operation on it. For example, closing the wrapped writer closes `io`.
+
+# Examples
+```jldoctest
+julia> vec = VecWriter(); io = IOWriter(vec);
+
+julia> get_inner(io) === vec
+true
+
+julia> write(io, "ab"); write(get_inner(io), "cd"); String(vec.vec)
+"abcd"
+```
+"""
+get_inner(x::IOWriter) = x.x
+
 # Forward basic I/O methods
 for f in [
         :close,

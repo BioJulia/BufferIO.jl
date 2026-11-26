@@ -26,6 +26,27 @@ end
 
 take_inner(x::IOReader) = x.x
 
+"""
+    get_inner(io::IOReader{T})::T
+
+Return the `AbstractBufReader` wrapped by `io`.
+
+An `IOReader` has no buffer or state of its own, so the wrapped reader may be used freely,
+and `io` reflects any operation on it. For example, closing the wrapped reader closes `io`.
+
+# Examples
+```jldoctest
+julia> cursor = CursorReader("abc"); io = IOReader(cursor);
+
+julia> get_inner(io) === cursor
+true
+
+julia> read(get_inner(io), UInt8); String(read(io))
+"bc"
+```
+"""
+get_inner(x::IOReader) = x.x
+
 for f in [
         :bytesavailable,
         :eof,

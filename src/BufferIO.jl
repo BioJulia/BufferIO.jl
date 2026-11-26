@@ -38,6 +38,7 @@ export AbstractBufReader,
     write_repeated,
     relative_seek,
     take_inner,
+    get_inner,
     drop_own,
     expandable,
     remaining_bytes_hint
@@ -407,6 +408,8 @@ true
 ```
 """
 function take_inner end
+
+function get_inner end
 
 ######################
 

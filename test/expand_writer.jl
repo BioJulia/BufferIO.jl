@@ -555,3 +555,30 @@ end
     io = expandable(BoundedWriter(UInt8[], 3))
     @test length(get_nonempty_buffer(io, 100)) ≥ 100
 end
+
+@testset "get_inner" begin
+    sink = UInt8[]
+    inner = BoundedWriter(sink, 4)
+    writer = ExpandWriter(inner)
+    @test get_inner(writer) === inner
+    # Getting the inner writer does not flush `writer`
+    write(writer, "abc")
+    @test get_inner(writer) === inner
+    @test isempty(sink)
+    # Nor does it disturb `writer` while it serves its own buffer
+    buffer = get_nonempty_buffer(writer, 8)
+    buffer[1:8] .= codeunits("defghijk")
+    consume(writer, 8)
+    @test get_inner(writer) === inner
+    @test isopen(get_inner(writer))
+    flush(writer)
+    @test String(copy(sink)) == "abcdefghijk"
+
+    @test isopen(writer)
+    close(writer)
+    @test_throws IOError get_inner(writer)
+
+    writer = ExpandWriter(VecWriter())
+    take_inner(writer)
+    @test_throws IOError get_inner(writer)
+end

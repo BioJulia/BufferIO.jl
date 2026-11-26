@@ -323,3 +323,12 @@ end
     @test !isreadable(io)
     @test !iswritable(io)
 end
+
+@testset "get_inner" begin
+    vec = VecWriter()
+    io = IOWriter(vec)
+    @test get_inner(io) === vec
+    write(io, "ab")
+    write(get_inner(io), "cd")
+    @test String(vec.vec) == "abcd"
+end

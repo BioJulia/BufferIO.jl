@@ -387,3 +387,11 @@ end
     @test !isreadable(io)
     @test !iswritable(io)
 end
+
+@testset "get_inner" begin
+    cursor = CursorReader("abc")
+    io = IOReader(cursor)
+    @test get_inner(io) === cursor
+    @test read(get_inner(io), UInt8) == UInt8('a')
+    @test read(io, String) == "bc"
+end

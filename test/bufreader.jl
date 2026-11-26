@@ -713,3 +713,24 @@ end
     @test read(reader) == 1:10
     @test eof(reader)
 end
+
+@testset "get_inner" begin
+    inner = IOBuffer("abcdefgh")
+    reader = BufReader(inner, 4)
+    @test get_inner(reader) === inner
+    # Using the inner IO while the buffer is empty keeps `reader` in sync
+    @test read(reader, 4) == b"abcd"
+    @test isempty(get_buffer(reader))
+    seek(get_inner(reader), 5)
+    @test position(reader) == 5
+    @test read(reader) == b"fgh"
+
+    # Getting the inner IO does not close `reader`
+    @test isopen(reader)
+    close(reader)
+    @test_throws IOError get_inner(reader)
+
+    reader = BufReader(IOBuffer("abc"))
+    take_inner(reader)
+    @test_throws IOError get_inner(reader)
+end

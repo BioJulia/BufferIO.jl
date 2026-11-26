@@ -433,6 +433,55 @@ function take_inner(x::BufWriter)
     return x.io
 end
 
+"""
+    get_inner(io::BufWriter{T})::T
+
+Return the IO wrapped by `io`, without closing or flushing `io`.
+
+!!! warning
+    `io` keeps using the wrapped IO, and assumes it has sole control of it.
+    Using the wrapped IO directly may put `io` out of sync with it.
+
+Be careful querying the returned inner value, and especially mutating it:
+
+Operations which do not change the position or content of the wrapped IO,
+like `fd`, are always allowed,
+but be aware that `io` and the inner may be out of sync, as data may be buffered
+in `io` that has not yet been flushed to the inner.
+
+Operations which do change the position or content, like writing or seeking, are allowed
+only when `io` has no buffered data, that is, when `get_unflushed(io)` is empty, e.g.
+after `shallow_flush(io)`. Otherwise, the buffered data is written after the data
+written directly to the wrapped IO, and `position(io)` is wrong.
+
+Closing the wrapped IO is not allowed. Close `io` instead.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is closed, including by `take_inner`.
+
+See also: [`take_inner`](@ref)
+
+# Examples
+```jldoctest
+julia> inner = IOBuffer(); writer = BufWriter(inner);
+
+julia> get_inner(writer) === inner
+true
+
+julia> write(writer, "abc"); shallow_flush(writer); # so the wrapped IO may be written to
+
+julia> write(get_inner(writer), "def");
+
+julia> write(writer, "ghi"); flush(writer)
+
+julia> String(take!(inner))
+"abcdefghi"
+```
+"""
+function get_inner(x::BufWriter)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    return x.io
+end
+
 is_expandable(::Type{<:BufWriter}) = true
 
 function consume(x::BufWriter, n::Int)

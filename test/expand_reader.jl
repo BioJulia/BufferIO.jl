@@ -658,3 +658,24 @@ end
     @test read_into!(io, MemoryView(UInt8[])) == 0
     @test_throws IOError read_into!(io, MemoryView(zeros(UInt8, 3)))
 end
+
+@testset "get_inner" begin
+    inner = BoundedReader("abcdefghij", 4; max_fill = 4)
+    reader = ExpandReader(inner)
+    @test get_inner(reader) === inner
+    # Getting the inner reader while serving the own buffer does not disturb `reader`
+    fill_buffer(reader)
+    fill_buffer(reader)
+    @test read(reader, 6) == b"abcdef"
+    @test get_inner(reader) === inner
+    @test isopen(get_inner(reader))
+    @test read(reader) == b"ghij"
+
+    @test isopen(reader)
+    close(reader)
+    @test_throws IOError get_inner(reader)
+
+    reader = ExpandReader(CursorReader("abc"))
+    take_inner(reader)
+    @test_throws IOError get_inner(reader)
+end

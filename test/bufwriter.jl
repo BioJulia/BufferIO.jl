@@ -636,3 +636,28 @@ end
     close(writer)
     @test_throws IOError take_inner(writer)
 end
+
+@testset "get_inner" begin
+    inner = IOBuffer()
+    writer = BufWriter(inner)
+    @test get_inner(writer) === inner
+    # Getting the inner IO does not flush `writer`
+    write(writer, "abc")
+    get_inner(writer)
+    @test isempty(take!(copy(inner)))
+    # Using the inner IO while nothing is buffered keeps `writer` in sync
+    shallow_flush(writer)
+    write(get_inner(writer), "def")
+    @test position(writer) == 6
+    write(writer, "ghi")
+    flush(writer)
+    @test String(take!(inner)) == "abcdefghi"
+
+    @test isopen(writer)
+    close(writer)
+    @test_throws IOError get_inner(writer)
+
+    writer = BufWriter(IOBuffer())
+    take_inner(writer)
+    @test_throws IOError get_inner(writer)
+end

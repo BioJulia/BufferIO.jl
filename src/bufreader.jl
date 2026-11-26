@@ -356,6 +356,58 @@ function take_inner(x::BufReader)
     return x.io
 end
 
+"""
+    get_inner(io::BufReader{T})::T
+
+Return the IO wrapped by `io`, without closing `io`.
+
+!!! warning
+    `io` keeps using the wrapped IO, and assumes it has sole control of it.
+    Using the wrapped IO directly may put `io` out of sync with it.
+
+Be careful querying the returned `T`, and especially mutating it:
+
+Operations which do not change the position or content of the wrapped IO,
+like `fd`,
+are always allowed, but be aware that `io` and the inner may be out of sync,
+e.g. `position` on the inner `T` may not match the position of `io`.
+
+Operations which do, like reading or seeking, are allowed only when the buffer of `io`
+is empty, that is, when `get_buffer(io)` is empty. Then, `io` continues reading from the
+new position of the wrapped IO. Otherwise, `io` returns its buffered data before the
+data at the new position, and `position(io)` is wrong.
+
+Closing the wrapped IO is not allowed. Close `io` instead.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is closed.
+
+See also: [`take_inner`](@ref)
+
+# Examples
+```jldoctest
+julia> inner = IOBuffer("abcdef"); reader = BufReader(inner, 4);
+
+julia> get_inner(reader) === inner
+true
+
+julia> String(read(reader, 4))
+"abcd"
+
+julia> isempty(get_buffer(reader)) # so the wrapped IO may be read from
+true
+
+julia> read(get_inner(reader), UInt8) # skip 'e'
+0x65
+
+julia> String(read(reader))
+"f"
+```
+"""
+function get_inner(x::BufReader)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
+    return x.io
+end
+
 function mark_closed!(x::BufReader)
     x.is_closed = true
     # Discard buffered data, such that the closed reader is empty
