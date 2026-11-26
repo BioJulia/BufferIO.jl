@@ -30,6 +30,33 @@ end
 take_inner(x::IOWriter) = x.x
 
 """
+    IOWriter(f, io::AbstractBufWriter)
+
+Create an `IOWriter` wrapping `io`, then call `f` on the `IOWriter`,
+and close the resulting `IOWriter`.
+Return the result of `f`.
+
+If both `f` and closing throw, the error from `f` is propagated.
+
+# Examples
+```jldoctest
+julia> buf = IOBuffer();
+
+julia> IOWriter(BufWriter(buf)) do io
+           write(io, "hello")
+       end
+5
+
+julia> isopen(buf) # closing the IOWriter closed the BufWriter, and so `buf`
+false
+```
+"""
+function IOWriter(f::F, io::AbstractBufWriter) where {F}
+    # The type parameter forces specialization, since `f` is only passed through
+    return call_and_close(f, IOWriter(io))
+end
+
+"""
     get_inner(io::IOWriter{T})::T
 
 Return the `AbstractBufWriter` wrapped by `io`.

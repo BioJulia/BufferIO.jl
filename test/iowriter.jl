@@ -332,3 +332,35 @@ end
     write(get_inner(io), "cd")
     @test String(vec.vec) == "abcd"
 end
+
+@testset "Automatic closing" begin
+    buf = IOBuffer()
+    writer = BufWriter(buf)
+    # The result of the function is returned
+    @test (@inferred IOWriter(io -> write(io, "abc"), writer)) == 3
+    @test !isopen(writer)
+    @test !isopen(buf)
+
+    # Closes if the function throws
+    writer = BufWriter(IOBuffer())
+    @test_throws ArgumentError("from f") IOWriter(writer) do io
+        throw(ArgumentError("from f"))
+    end
+    @test !isopen(writer)
+
+    # If both the function and closing throws, the error of the function is propagated.
+    # `FailingWriteIO` is defined in bufwriter.jl
+    inner = FailingWriteIO(false)
+    @test_throws ArgumentError("from f") IOWriter(BufWriter(inner)) do io
+        write(io, "abc")
+        throw(ArgumentError("from f"))
+    end
+    @test inner.is_closed
+
+    # If only closing throws, that error is propagated
+    inner = FailingWriteIO(false)
+    @test_throws ErrorException("write failed") IOWriter(BufWriter(inner)) do io
+        write(io, "abc")
+    end
+    @test inner.is_closed
+end
