@@ -210,12 +210,12 @@ Subtypes `T` of this type should implement at least:
 * `get_buffer(io::T)`
 * `fill_buffer(io::T)`
 * `consume(io::T, n::Int)`
-* `Base.close(io::T)`
 * `Base.isopen(io::T)`
 
 Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
 for details of the implementation:
 
+* `Base.close(io::T)`.
 * `Base.seek(io::T, ::Int)`
 * `relative_seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
@@ -255,11 +255,11 @@ Subtypes `T` of this type should implement at least:
 * `get_buffer(io::T)`
 * `grow_buffer(io::T)`
 * `consume(io::T, n::Int)`
-* `Base.close(io::T)`
 * `Base.isopen(io::T)`
 * `Base.flush(io::T)`
 
 They may optionally implement
+* `Base.close(io::T)`.
 * `Base.seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`

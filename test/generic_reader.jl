@@ -980,3 +980,22 @@ end
         @test_throws ErrorException buffer_until(reader, nl)
     end
 end
+
+# A reader which does not implement `close`
+struct NoCloseReader <: AbstractBufReader
+    x::CursorReader
+end
+
+BufferIO.get_buffer(r::NoCloseReader) = get_buffer(r.x)
+BufferIO.consume(r::NoCloseReader, n::Int) = consume(r.x, n)
+BufferIO.fill_buffer(r::NoCloseReader) = fill_buffer(r.x)
+Base.isopen(::NoCloseReader) = true
+
+@testset "Default close" begin
+    reader = NoCloseReader(CursorReader("abc"))
+    @test read(reader, 1) == b"a"
+    @test close(reader) === nothing
+    @test isopen(reader)
+    # Remains usable after close
+    @test read(reader) == b"bc"
+end
