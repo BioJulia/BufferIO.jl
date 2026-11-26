@@ -73,6 +73,11 @@ end
 Base.read(x::IOReader, n::Integer) = read(x.x, n)
 Base.readline(x::IOReader; keep::Bool = false) = readline(x.x; keep)
 Base.seek(x::IOReader, n::Integer) = (seek(x.x, n); x)
+Base.seekend(x::IOReader) = (seekend(x.x); x)
+Base.skip(x::IOReader, n::Integer) = (skip(x.x, n); x)
+
+# Base falls back to `isopen` for `IO`
+Base.iswritable(::IOReader) = false
 
 function Base.readbytes!(x::IOReader, b::AbstractVector{UInt8}, nb::Integer = length(b))
     return readbytes!(x.x, b, nb)

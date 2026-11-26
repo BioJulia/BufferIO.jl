@@ -49,6 +49,9 @@ end
 Base.seek(io::LineWriter, p::Integer) = (seek(io.inner, p); io)
 Base.seekend(io::LineWriter) = (seekend(io.inner); io)
 
+# Base falls back to `isopen` for `IO`
+Base.isreadable(::LineWriter) = false
+
 # Note: Do not define a method taking `n_bytes::Integer`. Base's fallback for `IO` already
 # converts to `UInt`, and such a method would invalidate the many compiled call sites of
 # `unsafe_write(::IO, ::Ptr{UInt8}, ::Int)`, including in the REPL, causing latency.

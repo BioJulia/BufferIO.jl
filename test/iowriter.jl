@@ -299,3 +299,27 @@ end
     writer = VecWriter()
     @test take_inner(IOWriter(writer)) === writer
 end
+
+@testset "seekend" begin
+    for writer in [BufWriter(IOBuffer(), 4), BufWriter(IOBuffer(), 64)]
+        io = IOWriter(writer)
+        write(io, "abcdef")
+        seek(io, 2)
+        write(io, "x")
+        @test position(io) == 3
+        @test seekend(io) === io
+        @test position(io) == 6
+        write(io, "g")
+        flush(io)
+        @test take!(take_inner(writer)) == b"abxdefg"
+    end
+end
+
+@testset "isreadable and iswritable" begin
+    io = IOWriter(BufWriter(IOBuffer()))
+    @test !isreadable(io)
+    @test iswritable(io)
+    close(io)
+    @test !isreadable(io)
+    @test !iswritable(io)
+end
