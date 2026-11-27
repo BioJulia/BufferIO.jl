@@ -281,6 +281,8 @@ Calling this function, even when the buffer is empty, should never do actual sys
 and in particular should not attempt to fill the buffer.
 To fill the buffer, call [`fill_buffer`](@ref).
 
+Most call sites can more conveniently use [`get_nonempty_buffer`](@ref) instead.
+
 # Examples
 ```jldoctest
 julia> reader = BufReader(IOBuffer("abcdefghij"), 5);
@@ -328,6 +330,10 @@ This function should never return `nothing` if the buffer is empty.
     because doing so may force growing the buffer instead of letting `io` choose an optimal
     buffer size. Calling `fill_buffer` with a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` itself to buffer some minimum amount of data.
+    Users may want to use [`get_nonempty_buffer`](@ref) for automatic filling when the buffer
+    is empty.
+
+See also: [`get_nonempty_buffer`](@ref)
 
 # Examples
 ```jldoctest

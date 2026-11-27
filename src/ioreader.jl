@@ -6,6 +6,9 @@ Wrapper type to convert an `AbstractBufReader` to an `IO`.
 `IOReader`s implement the same part of the `IO` interface as `AbstractBufReader`,
 so this type is only used to satisfy type constraints.
 
+Most users should use the `IOReader(f, ::AbstractBufReader)` constructor, which
+automatically closes the inner reader after applying `f` to the resulting `IOReader`.
+
 # Examples
 ```jldoctest
 julia> io = CursorReader("hello");

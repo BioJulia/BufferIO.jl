@@ -9,22 +9,22 @@ is called on it while it does not contain any data (as shown by `get_unflushed`)
 
 Throw an `ArgumentError` if `buffer_size` is < 1.
 
+Most users should use the `BufWriter(f, ::IO)` constructor, which automatically
+closes the resulting writer after applying `f` to the writer
+
 ```jldoctest
-julia> io = IOBuffer(); wtr = BufWriter(io);
+julia> io = IOBuffer(); 
 
-julia> print(wtr, "Hello!")
-
-julia> write(wtr, [0x34, 0x12, 0x78, 0x56])
-4
-
-julia> isempty(read(io)) # wtr not flushed
-true
-
-julia> flush(wtr); seekstart(io); String(read(io))
+julia> BufWriter(io) do wtr
+           print(wtr, "Hello!")
+           write(wtr, [0x34, 0x12, 0x78, 0x56])
+           println("Initially empty: ", eof(get_inner(wtr))) # not flushed
+           flush(wtr)
+           seekstart(get_inner(wtr))
+           println(repr(String(read(take_inner(wtr)))))
+       end
+Initially empty: true
 "Hello!4\\x12xV"
-
-julia> isempty(get_unflushed(wtr))
-true
 ```
 
 # Extended help
@@ -270,6 +270,8 @@ If none of these can grow the buffer, return zero.
     algorithmic reasons you need `io` buffer to be able to hold some minimum amount of data
     before flushing.
 
+See also: [`get_nonempty_buffer`](@ref)
+
 # Examples
 ```jldoctest
 julia> v = VecWriter(undef, 0); get_buffer(v) |> isempty
@@ -352,6 +354,8 @@ For writers with an underlying I/O, the underlying I/O should also be flushed.
 
 For writers without an underlying I/O, where the final writing destination is `io`
 ifself, the implementation may be simply `return nothing`.
+
+See also: [`shallow_flush`](@ref)
 
 # Examples
 ```jldoctest

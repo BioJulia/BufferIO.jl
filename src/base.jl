@@ -706,8 +706,8 @@ behaviour. Depending on the implementation, operations on a closed `io` may thro
 `IOError` of kind `ClosedIO`, or continue to work normally.
 
 The default method does nothing for readers, and calls `flush(io)` for writers.
-It suits types which do not own any resources, or which borrow their inner IO rather
-than own it.
+It suits types which do not own any resources, or which borrow their resources rather
+than owning them.
 
 See also: [`take_inner`](@ref)
 

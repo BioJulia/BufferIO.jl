@@ -6,6 +6,9 @@ Wrapper type to convert an `AbstractBufWriter` to an `IO`.
 `IOWriter`s implement the same part of the `IO` interface as `AbstractBufWriter`,
 so this type is only used to satisfy type constraints.
 
+Most users should use the `IOWriter(f, ::AbstractBufWriter)` constructor, which
+automatically closes the inner writer after applying `f` to the resulting `IOWriter`.
+
 # Examples
 ```jldoctest
 julia> io = VecWriter();

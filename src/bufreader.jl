@@ -16,20 +16,26 @@ and `readbytes!` reads zero bytes, an exception is thrown when filling the buffe
 
 Throw an `ArgumentError` if `buffer_size` is less than 1.
 
+Most users should use the `BufReader(f, ::IO)` constructor, which automatically
+closes the resulting reader after applying `f` to the reader.
+
 ```jldoctest
-julia> rdr = BufReader(IOBuffer("Hello, world!\\nabc\\r\\ndef"));
+julia> io = IOBuffer("Hello, world!\\nabc\\r\\ndef");
 
-julia> get_buffer(rdr) |> isempty
-true
+julia> BufReader(io) do rdr
+            get_buffer(rdr) |> isempty
+            println(peek(rdr))
+            println(readline(rdr))
+            println(String(readavailable(rdr)))
+       end
+72
+Hello, world!
+abc
+def
 
-julia> peek(rdr)
-0x48
-
-julia> readline(rdr)
-"Hello, world!"
-
-julia> String(readavailable(rdr))
-"abc\\r\\ndef"
+julia> peek(io)
+ERROR: ArgumentError: read failed, IOBuffer is not readable
+[...]
 ```
 
 # Extended help
@@ -365,12 +371,12 @@ Return the IO wrapped by `io`, without closing `io`.
     `io` keeps using the wrapped IO, and assumes it has sole control of it.
     Using the wrapped IO directly may put `io` out of sync with it.
 
-Be careful querying the returned `T`, and especially mutating it:
+Be careful querying the returned inner value, and especially mutating it:
 
 Operations which do not change the position or content of the wrapped IO,
-like `fd`,
-are always allowed, but be aware that `io` and the inner may be out of sync,
-e.g. `position` on the inner `T` may not match the position of `io`.
+like `fd`, are always allowed,
+but be aware that `io` and the inner may be out of sync, as data may have
+been read by the inner and into `io`.
 
 Operations which do, like reading or seeking, are allowed only when the buffer of `io`
 is empty, that is, when `get_buffer(io)` is empty. Then, `io` continues reading from the
