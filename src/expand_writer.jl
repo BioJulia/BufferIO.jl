@@ -79,7 +79,7 @@ ExpandWriter(inner::AbstractBufWriter) = ExpandWriter{typeof(inner)}(inner)
 
 function get_buffer(io::ExpandWriter)::MutableMemoryView{UInt8}
     io.serving_own || return get_buffer(io.inner)::MutableMemoryView{UInt8}
-    return @inbounds MemoryViews.truncate_start(MemoryView(io.mem), io.n_pending + 1)
+    return @inbounds truncate_start(MemoryView(io.mem), io.n_pending + 1)
 end
 
 Base.@propagate_inbounds function consume(io::ExpandWriter, n::Int)
@@ -179,7 +179,7 @@ function write_to_inner(inner::AbstractBufWriter, src::ImmutableMemoryView{UInt8
     while n_written < length(src)
         buffer = get_nonempty_buffer(inner)::Union{Nothing, MutableMemoryView{UInt8}}
         isnothing(buffer) && break
-        n = copyto_start!(buffer, @inbounds src[(n_written + 1):end])
+        n = copyto_start!(buffer, @inbounds truncate_start(src, n_written + 1))
         consume(inner, n)
         n_written += n
     end
