@@ -1,10 +1,18 @@
 # Unreleased
-## Bugfixes
-* Filling the buffer of a `BufReader` no longer waits until the buffer is full or its
-  `IO` is EOF, if the `IO` has fewer bytes available, e.g. on a pipe or a socket.
-  It now reads at most `bytesavailable(io)` bytes, if the `IO` implements
-  `bytesavailable`, but at least one. Previously, reading from a stream whose other end
-  waits for a reply could wait forever.
+## New features
+* Add and export `get_inner(io)`, which returns the IO wrapped by a `BufReader`,
+  `BufWriter`, `IOReader`, `IOWriter`, `ExpandReader` or `ExpandWriter`. Unlike
+  `take_inner`, it does not close `io`. The docstrings say which operations on the wrapped
+  IO are allowed while `io` is in use.
+* Subtypes of `AbstractBufReader` and `AbstractBufWriter` no longer need to implement
+  `close`. The default method does nothing for readers, and calls `flush` for writers.
+  Types which own resources, such as an inner IO, should still implement it.
+  `isopen` must still be implemented.
+* Add the do-form `IOWriter(f, io::AbstractBufWriter)`, which calls `f` on an `IOWriter`
+  wrapping `io`, then closes it, and returns the result of `f`.
+* Add `skip(::IOReader, n)`, which seeks the wrapped reader, like
+  `skip(::AbstractBufReader, n)`.
+* Add `seekend(::IOReader)` and `seekend(::IOWriter)`.
 
 # 0.3.4
 ## New features

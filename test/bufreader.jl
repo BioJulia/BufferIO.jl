@@ -287,6 +287,11 @@ end
     @test (@inferred Nothing get_nonempty_buffer(reader, 2)) isa ImmutableMemoryView{UInt8}
 end
 
+# IO which fails when closed
+struct FailingCloseIO <: IO end
+
+Base.close(::FailingCloseIO) = error("close failed")
+
 @testset "Automatic closing" begin
     io = IOBuffer("hello, world!")
     try
@@ -299,6 +304,17 @@ end
         nothing
     end
     @test !isreadable(io)
+
+    # The result of the function is returned
+    @test (@inferred BufReader(r -> read(r, UInt8), IOBuffer("abc"))) == UInt8('a')
+
+    # If both the function and closing throws, the error of the function is propagated
+    @test_throws ArgumentError("from f") BufReader(FailingCloseIO()) do reader
+        throw(ArgumentError("from f"))
+    end
+
+    # If only closing throws, that error is propagated
+    @test_throws ErrorException("close failed") BufReader(isopen, FailingCloseIO())
 end
 
 @testset "isopen" begin
@@ -696,4 +712,25 @@ end
     @test get_buffer(reader) == 1:4
     @test read(reader) == 1:10
     @test eof(reader)
+end
+
+@testset "get_inner" begin
+    inner = IOBuffer("abcdefgh")
+    reader = BufReader(inner, 4)
+    @test get_inner(reader) === inner
+    # Using the inner IO while the buffer is empty keeps `reader` in sync
+    @test read(reader, 4) == b"abcd"
+    @test isempty(get_buffer(reader))
+    seek(get_inner(reader), 5)
+    @test position(reader) == 5
+    @test read(reader) == b"fgh"
+
+    # Getting the inner IO does not close `reader`
+    @test isopen(reader)
+    close(reader)
+    @test_throws IOError get_inner(reader)
+
+    reader = BufReader(IOBuffer("abc"))
+    take_inner(reader)
+    @test_throws IOError get_inner(reader)
 end

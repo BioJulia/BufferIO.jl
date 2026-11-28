@@ -16,20 +16,26 @@ and `readbytes!` reads zero bytes, an exception is thrown when filling the buffe
 
 Throw an `ArgumentError` if `buffer_size` is less than 1.
 
+Most users should use the `BufReader(f, ::IO)` constructor, which automatically
+closes the resulting reader after applying `f` to the reader.
+
 ```jldoctest
-julia> rdr = BufReader(IOBuffer("Hello, world!\\nabc\\r\\ndef"));
+julia> io = IOBuffer("Hello, world!\\nabc\\r\\ndef");
 
-julia> get_buffer(rdr) |> isempty
-true
+julia> BufReader(io) do rdr
+            get_buffer(rdr) |> isempty
+            println(peek(rdr))
+            println(readline(rdr))
+            println(String(readavailable(rdr)))
+       end
+72
+Hello, world!
+abc
+def
 
-julia> peek(rdr)
-0x48
-
-julia> readline(rdr)
-"Hello, world!"
-
-julia> String(readavailable(rdr))
-"abc\\r\\ndef"
+julia> peek(io)
+ERROR: ArgumentError: read failed, IOBuffer is not readable
+[...]
 ```
 
 # Extended help
@@ -104,13 +110,9 @@ ERROR: ArgumentError: read failed, IOBuffer is not readable
 [...]
 ```
 """
-function BufReader(f, io::IO, buffer_size::Int = default_buffer_size(io))
-    reader = BufReader(io, buffer_size)
-    return try
-        f(reader)
-    finally
-        close(reader)
-    end
+function BufReader(f::F, io::IO, buffer_size::Int = default_buffer_size(io)) where {F}
+    # The type parameter forces specialization, since `f` is only passed through
+    return call_and_close(f, BufReader(io, buffer_size))
 end
 
 function get_buffer(x::BufReader)::ImmutableMemoryView{UInt8}
@@ -357,6 +359,58 @@ ERROR: Unsupported operation on closed IO
 function take_inner(x::BufReader)
     x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     mark_closed!(x)
+    return x.io
+end
+
+"""
+    get_inner(io::BufReader{T})::T
+
+Return the IO wrapped by `io`, without closing `io`.
+
+!!! warning
+    `io` keeps using the wrapped IO, and assumes it has sole control of it.
+    Using the wrapped IO directly may put `io` out of sync with it.
+
+Be careful querying the returned inner value, and especially mutating it:
+
+Operations which do not change the position or content of the wrapped IO,
+like `fd`, are always allowed,
+but be aware that `io` and the inner may be out of sync, as data may have
+been read by the inner and into `io`.
+
+Operations which do, like reading or seeking, are allowed only when the buffer of `io`
+is empty, that is, when `get_buffer(io)` is empty. Then, `io` continues reading from the
+new position of the wrapped IO. Otherwise, `io` returns its buffered data before the
+data at the new position, and `position(io)` is wrong.
+
+Closing the wrapped IO is not allowed. Close `io` instead.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is closed.
+
+See also: [`take_inner`](@ref)
+
+# Examples
+```jldoctest
+julia> inner = IOBuffer("abcdef"); reader = BufReader(inner, 4);
+
+julia> get_inner(reader) === inner
+true
+
+julia> String(read(reader, 4))
+"abcd"
+
+julia> isempty(get_buffer(reader)) # so the wrapped IO may be read from
+true
+
+julia> read(get_inner(reader), UInt8) # skip 'e'
+0x65
+
+julia> String(read(reader))
+"f"
+```
+"""
+function get_inner(x::BufReader)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     return x.io
 end
 

@@ -9,22 +9,22 @@ is called on it while it does not contain any data (as shown by `get_unflushed`)
 
 Throw an `ArgumentError` if `buffer_size` is < 1.
 
+Most users should use the `BufWriter(f, ::IO)` constructor, which automatically
+closes the resulting writer after applying `f` to the writer
+
 ```jldoctest
-julia> io = IOBuffer(); wtr = BufWriter(io);
+julia> io = IOBuffer(); 
 
-julia> print(wtr, "Hello!")
-
-julia> write(wtr, [0x34, 0x12, 0x78, 0x56])
-4
-
-julia> isempty(read(io)) # wtr not flushed
-true
-
-julia> flush(wtr); seekstart(io); String(read(io))
+julia> BufWriter(io) do wtr
+           print(wtr, "Hello!")
+           write(wtr, [0x34, 0x12, 0x78, 0x56])
+           println("Initially empty: ", eof(get_inner(wtr))) # not flushed
+           flush(wtr)
+           seekstart(get_inner(wtr))
+           println(repr(String(read(take_inner(wtr)))))
+       end
+Initially empty: true
 "Hello!4\\x12xV"
-
-julia> isempty(get_unflushed(wtr))
-true
 ```
 
 # Extended help
@@ -103,13 +103,9 @@ julia> iswritable(io) # closing writer closes io also
 false
 ```
 """
-function BufWriter(f, io::IO, buffer_size::Int = 4096)
-    writer = BufWriter(io, buffer_size)
-    return try
-        f(writer)
-    finally
-        close(writer)
-    end
+function BufWriter(f::F, io::IO, buffer_size::Int = 4096) where {F}
+    # The type parameter forces specialization, since `f` is only passed through
+    return call_and_close(f, BufWriter(io, buffer_size))
 end
 
 """
@@ -274,6 +270,8 @@ If none of these can grow the buffer, return zero.
     algorithmic reasons you need `io` buffer to be able to hold some minimum amount of data
     before flushing.
 
+See also: [`get_nonempty_buffer`](@ref)
+
 # Examples
 ```jldoctest
 julia> v = VecWriter(undef, 0); get_buffer(v) |> isempty
@@ -357,6 +355,8 @@ For writers with an underlying I/O, the underlying I/O should also be flushed.
 For writers without an underlying I/O, where the final writing destination is `io`
 ifself, the implementation may be simply `return nothing`.
 
+See also: [`shallow_flush`](@ref)
+
 # Examples
 ```jldoctest
 julia> buf = IOBuffer(); io = BufWriter(buf);
@@ -384,12 +384,10 @@ function Base.close(x::BufWriter)
     # IO throws. This keeps the content of the memory.
     n_buffered = x.consumed
     mark_closed!(x)
-    try
+    # Per the docstring of `close(::IO)`, closing flushes the underlying IO.
+    # Close it even if writing failed, since `x` can't be closed again.
+    call_and_close(x.io) do _
         iszero(n_buffered) || write_buffered(x, n_buffered)
-    finally
-        # Per the docstring of `close(::IO)`, this flushes the underlying IO.
-        # Close it even if writing failed, since `x` can't be closed again.
-        close(x.io)
     end
     return nothing
 end
@@ -436,6 +434,55 @@ ERROR: Unsupported operation on closed IO
 function take_inner(x::BufWriter)
     shallow_flush(x) # throws if closed
     mark_closed!(x)
+    return x.io
+end
+
+"""
+    get_inner(io::BufWriter{T})::T
+
+Return the IO wrapped by `io`, without closing or flushing `io`.
+
+!!! warning
+    `io` keeps using the wrapped IO, and assumes it has sole control of it.
+    Using the wrapped IO directly may put `io` out of sync with it.
+
+Be careful querying the returned inner value, and especially mutating it:
+
+Operations which do not change the position or content of the wrapped IO,
+like `fd`, are always allowed,
+but be aware that `io` and the inner may be out of sync, as data may be buffered
+in `io` that has not yet been flushed to the inner.
+
+Operations which do change the position or content, like writing or seeking, are allowed
+only when `io` has no buffered data, that is, when `get_unflushed(io)` is empty, e.g.
+after `shallow_flush(io)`. Otherwise, the buffered data is written after the data
+written directly to the wrapped IO, and `position(io)` is wrong.
+
+Closing the wrapped IO is not allowed. Close `io` instead.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is closed, including by `take_inner`.
+
+See also: [`take_inner`](@ref)
+
+# Examples
+```jldoctest
+julia> inner = IOBuffer(); writer = BufWriter(inner);
+
+julia> get_inner(writer) === inner
+true
+
+julia> write(writer, "abc"); shallow_flush(writer); # so the wrapped IO may be written to
+
+julia> write(get_inner(writer), "def");
+
+julia> write(writer, "ghi"); flush(writer)
+
+julia> String(take!(inner))
+"abcdefghi"
+```
+"""
+function get_inner(x::BufWriter)
+    x.is_closed && throw(IOError(IOErrorKinds.ClosedIO))
     return x.io
 end
 

@@ -158,6 +158,14 @@ end
 Base.unsafe_write(::FailingWriteIO, ::Ptr{UInt8}, ::UInt) = error("write failed")
 Base.close(x::FailingWriteIO) = (x.is_closed = true; nothing)
 
+# IO which fails both when written to and when closed
+mutable struct FailingWriteCloseIO <: IO
+    is_closed::Bool
+end
+
+Base.unsafe_write(::FailingWriteCloseIO, ::Ptr{UInt8}, ::UInt) = error("write failed")
+Base.close(x::FailingWriteCloseIO) = (x.is_closed = true; error("close failed"))
+
 @testset "close when underlying IO throws" begin
     io = FailingWriteIO(false)
     writer = BufWriter(io)
@@ -168,6 +176,19 @@ Base.close(x::FailingWriteIO) = (x.is_closed = true; nothing)
     @test io.is_closed
     @test_throws IOError write(writer, "abc")
     @test isnothing(close(writer))
+
+    # If both writing to and closing the underlying IO throws, the write error is propagated
+    io = FailingWriteCloseIO(false)
+    writer = BufWriter(io)
+    write(writer, "abc")
+    @test_throws ErrorException("write failed") close(writer)
+    @test !isopen(writer)
+    @test io.is_closed
+
+    # If only closing throws, that error is propagated
+    writer = BufWriter(FailingWriteCloseIO(false))
+    @test_throws ErrorException("close failed") close(writer)
+    @test !isopen(writer)
 end
 
 @testset "write UInt8" begin
@@ -550,6 +571,24 @@ end
     end
     @test !iswritable(io)
     @test_throws Exception read(io)
+
+    # The result of the function is returned
+    @test (@inferred BufWriter(w -> write(w, "abc"), IOBuffer())) == 3
+
+    # If both the function and closing throws, the error of the function is propagated
+    io = FailingWriteIO(false)
+    @test_throws ArgumentError("from f") BufWriter(io) do writer
+        write(writer, "abc")
+        throw(ArgumentError("from f"))
+    end
+    @test io.is_closed
+
+    # If only closing throws, that error is propagated
+    io = FailingWriteIO(false)
+    @test_throws ErrorException("write failed") BufWriter(io) do writer
+        write(writer, "abc")
+    end
+    @test io.is_closed
 end
 
 @testset "take_inner" begin
@@ -596,4 +635,29 @@ end
     writer = BufWriter(IOBuffer())
     close(writer)
     @test_throws IOError take_inner(writer)
+end
+
+@testset "get_inner" begin
+    inner = IOBuffer()
+    writer = BufWriter(inner)
+    @test get_inner(writer) === inner
+    # Getting the inner IO does not flush `writer`
+    write(writer, "abc")
+    get_inner(writer)
+    @test isempty(take!(copy(inner)))
+    # Using the inner IO while nothing is buffered keeps `writer` in sync
+    shallow_flush(writer)
+    write(get_inner(writer), "def")
+    @test position(writer) == 6
+    write(writer, "ghi")
+    flush(writer)
+    @test String(take!(inner)) == "abcdefghi"
+
+    @test isopen(writer)
+    close(writer)
+    @test_throws IOError get_inner(writer)
+
+    writer = BufWriter(IOBuffer())
+    take_inner(writer)
+    @test_throws IOError get_inner(writer)
 end

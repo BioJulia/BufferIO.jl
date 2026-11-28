@@ -365,3 +365,28 @@ end
     close(writer)
     @test sink == b"ab"
 end
+
+# A writer which implements `flush`, but not `close`
+mutable struct NoCloseWriter <: AbstractBufWriter
+    const x::VecWriter
+    flushes::Int
+end
+
+BufferIO.get_buffer(w::NoCloseWriter) = get_buffer(w.x)
+BufferIO.consume(w::NoCloseWriter, n::Int) = consume(w.x, n)
+BufferIO.grow_buffer(w::NoCloseWriter) = grow_buffer(w.x)
+Base.flush(w::NoCloseWriter) = (w.flushes += 1; nothing)
+Base.isopen(::NoCloseWriter) = true
+
+@testset "Default close" begin
+    writer = NoCloseWriter(VecWriter(), 0)
+    write(writer, "abc")
+    @test close(writer) === nothing
+    @test writer.flushes == 1
+    @test isopen(writer)
+    # Remains usable after close
+    write(writer, "de")
+    @test close(writer) === nothing
+    @test writer.flushes == 2
+    @test String(writer.x.vec) == "abcde"
+end

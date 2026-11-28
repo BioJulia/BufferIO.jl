@@ -6,6 +6,9 @@ Wrapper type to convert an `AbstractBufWriter` to an `IO`.
 `IOWriter`s implement the same part of the `IO` interface as `AbstractBufWriter`,
 so this type is only used to satisfy type constraints.
 
+Most users should use the `IOWriter(f, ::AbstractBufWriter)` constructor, which
+automatically closes the inner writer after applying `f` to the resulting `IOWriter`.
+
 # Examples
 ```jldoctest
 julia> io = VecWriter();
@@ -29,6 +32,54 @@ end
 
 take_inner(x::IOWriter) = x.x
 
+"""
+    IOWriter(f, io::AbstractBufWriter)
+
+Create an `IOWriter` wrapping `io`, then call `f` on the `IOWriter`,
+and close the resulting `IOWriter`.
+Return the result of `f`.
+
+If both `f` and closing throw, the error from `f` is propagated.
+
+# Examples
+```jldoctest
+julia> buf = IOBuffer();
+
+julia> IOWriter(BufWriter(buf)) do io
+           write(io, "hello")
+       end
+5
+
+julia> isopen(buf) # closing the IOWriter closed the BufWriter, and so `buf`
+false
+```
+"""
+function IOWriter(f::F, io::AbstractBufWriter) where {F}
+    # The type parameter forces specialization, since `f` is only passed through
+    return call_and_close(f, IOWriter(io))
+end
+
+"""
+    get_inner(io::IOWriter{T})::T
+
+Return the `AbstractBufWriter` wrapped by `io`.
+
+An `IOWriter` has no buffer or state of its own, so the wrapped writer may be used freely,
+and `io` reflects any operation on it. For example, closing the wrapped writer closes `io`.
+
+# Examples
+```jldoctest
+julia> vec = VecWriter(); io = IOWriter(vec);
+
+julia> get_inner(io) === vec
+true
+
+julia> write(io, "ab"); write(get_inner(io), "cd"); String(vec.vec)
+"abcd"
+```
+"""
+get_inner(x::IOWriter) = x.x
+
 # Forward basic I/O methods
 for f in [
         :close,
@@ -46,6 +97,10 @@ Base.unsafe_write(io::IOWriter, p::Ptr{UInt8}, n::UInt) = unsafe_write(io.x, p, 
 
 # Other methods
 Base.seek(x::IOWriter, n::Integer) = (seek(x.x, n); x)
+Base.seekend(x::IOWriter) = (seekend(x.x); x)
+
+# Base falls back to `isopen` for `IO`
+Base.isreadable(::IOWriter) = false
 
 # See comment on `copyline` in ioreader.jl
 function Base.copyline(out::IOWriter, from::IOReader; keep::Bool = false)

@@ -299,3 +299,68 @@ end
     writer = VecWriter()
     @test take_inner(IOWriter(writer)) === writer
 end
+
+@testset "seekend" begin
+    for writer in [BufWriter(IOBuffer(), 4), BufWriter(IOBuffer(), 64)]
+        io = IOWriter(writer)
+        write(io, "abcdef")
+        seek(io, 2)
+        write(io, "x")
+        @test position(io) == 3
+        @test seekend(io) === io
+        @test position(io) == 6
+        write(io, "g")
+        flush(io)
+        @test take!(take_inner(writer)) == b"abxdefg"
+    end
+end
+
+@testset "isreadable and iswritable" begin
+    io = IOWriter(BufWriter(IOBuffer()))
+    @test !isreadable(io)
+    @test iswritable(io)
+    close(io)
+    @test !isreadable(io)
+    @test !iswritable(io)
+end
+
+@testset "get_inner" begin
+    vec = VecWriter()
+    io = IOWriter(vec)
+    @test get_inner(io) === vec
+    write(io, "ab")
+    write(get_inner(io), "cd")
+    @test String(vec.vec) == "abcd"
+end
+
+@testset "Automatic closing" begin
+    buf = IOBuffer()
+    writer = BufWriter(buf)
+    # The result of the function is returned
+    @test (@inferred IOWriter(io -> write(io, "abc"), writer)) == 3
+    @test !isopen(writer)
+    @test !isopen(buf)
+
+    # Closes if the function throws
+    writer = BufWriter(IOBuffer())
+    @test_throws ArgumentError("from f") IOWriter(writer) do io
+        throw(ArgumentError("from f"))
+    end
+    @test !isopen(writer)
+
+    # If both the function and closing throws, the error of the function is propagated.
+    # `FailingWriteIO` is defined in bufwriter.jl
+    inner = FailingWriteIO(false)
+    @test_throws ArgumentError("from f") IOWriter(BufWriter(inner)) do io
+        write(io, "abc")
+        throw(ArgumentError("from f"))
+    end
+    @test inner.is_closed
+
+    # If only closing throws, that error is propagated
+    inner = FailingWriteIO(false)
+    @test_throws ErrorException("write failed") IOWriter(BufWriter(inner)) do io
+        write(io, "abc")
+    end
+    @test inner.is_closed
+end

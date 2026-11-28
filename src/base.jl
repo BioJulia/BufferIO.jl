@@ -705,6 +705,10 @@ that `close` and `isopen` behave as documented, and that no operation causes und
 behaviour. Depending on the implementation, operations on a closed `io` may throw an
 `IOError` of kind `ClosedIO`, or continue to work normally.
 
+The default method does nothing for readers, and calls `flush(io)` for writers.
+It suits types which do not own any resources, or which borrow their resources rather
+than owning them.
+
 See also: [`take_inner`](@ref)
 
 # Examples
@@ -723,6 +727,13 @@ ERROR: Unsupported operation on closed IO
 """
 Base.close(::Union{AbstractBufReader, AbstractBufWriter})
 
+Base.close(::AbstractBufReader) = nothing
+
+function Base.close(io::AbstractBufWriter)
+    flush(io)
+    return nothing
+end
+
 """
     isopen(io::Union{AbstractBufReader, AbstractBufWriter})::Bool
 
@@ -732,6 +743,10 @@ made unusable by `close` or `take_inner`, or a similar function.
 For types that remain usable after `close`, such as [`VecWriter`](@ref), `isopen`
 should return `true`, even after `close` has been called on the io.
 Hence, `isopen(io)` does not generically tell whether `close(io)` has been called.
+
+Every subtype must implement `isopen`. There is no default method, since no default
+returns the correct value for both types that are made unusable by `close` and types
+that are not.
 
 # Examples
 ```jldoctest

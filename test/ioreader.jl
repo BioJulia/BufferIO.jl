@@ -337,3 +337,61 @@ end
     @test BufferIO.remaining_bytes_hint(reader) == 3
     @test BufferIO.remaining_bytes_hint(BufReader(IOReader(GenericBufReader("abc")))) === nothing
 end
+
+@testset "seekend and skip" begin
+    for reader in [
+            CursorReader("abcdefghij"),
+            BufReader(IOBuffer("abcdefghij"), 4),
+        ]
+        io = IOReader(reader)
+        @test seekend(io) === io
+        @test eof(io)
+        @test position(io) == 10
+
+        # Within, and beyond, the buffer of `BufReader`
+        @test seekstart(io) === io
+        @test skip(io, 2) === io
+        @test read(io, UInt8) == UInt8('c')
+        @test skip(io, Int8(5)) === io
+        @test read(io, UInt8) == UInt8('i')
+        @test skip(io, -7) === io
+        @test read(io, UInt8) == UInt8('c')
+        @test position(skip(io, 0)) == 3
+
+        # Like for the inner reader, skipping out of bounds throws
+        for n in (-4, 8)
+            err = try
+                skip(io, n)
+            catch e
+                e
+            end
+            @test err isa IOError && err.kind == IOErrorKinds.BadSeek
+            @test position(io) == 3
+        end
+
+        # Skipping to the end
+        @test eof(skip(io, 7))
+    end
+
+    # Readers that can't seek
+    io = IOReader(GenericBufReader("abc"))
+    @test_throws MethodError skip(io, 1)
+    @test_throws MethodError seekend(io)
+end
+
+@testset "isreadable and iswritable" begin
+    io = IOReader(BufReader(IOBuffer("abc")))
+    @test isreadable(io)
+    @test !iswritable(io)
+    close(io)
+    @test !isreadable(io)
+    @test !iswritable(io)
+end
+
+@testset "get_inner" begin
+    cursor = CursorReader("abc")
+    io = IOReader(cursor)
+    @test get_inner(io) === cursor
+    @test read(get_inner(io), UInt8) == UInt8('a')
+    @test read(io, String) == "bc"
+end

@@ -368,6 +368,42 @@ function take_inner(io::ExpandReader)
     return io.inner
 end
 
+"""
+    get_inner(io::ExpandReader{T})::T
+
+Return the inner reader of `io`, without closing `io`.
+
+!!! warning
+    `io` keeps using the inner reader, and assumes it has sole control of it.
+    Mutating the inner reader may invalidate `io`.
+
+Only operations which do not change the inner reader are allowed, like `isopen`,
+`filesize`, or `fd` of the IO it wraps.
+Their results describe the inner reader, not `io`. For example, `position` of the
+inner reader may not match the position of `io`, even when `get_buffer(io)` is empty.
+
+Operations which change the inner reader, like reading, consuming, filling, seeking or
+closing it, are not allowed. To use the inner reader freely, call [`take_inner`](@ref)
+instead, which positions it at the position of `io`.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is closed.
+
+# Examples
+```jldoctest
+julia> inner = BufReader(IOBuffer("abc")); reader = ExpandReader(inner);
+
+julia> get_inner(reader) === inner
+true
+
+julia> isopen(get_inner(reader))
+true
+```
+"""
+function get_inner(io::ExpandReader)
+    io.closed && throw_closed()
+    return io.inner
+end
+
 function mark_closed!(io::ExpandReader)
     # Release the memory, and serve an empty own buffer. See comment on the `closed` field.
     io.buffer = MemoryView(Memory{UInt8}())

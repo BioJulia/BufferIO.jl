@@ -242,13 +242,11 @@ function Base.close(io::ExpandWriter)
         ImmutableMemoryView(Memory{UInt8}())
     end
     mark_closed!(io)
-    try
-        if write_to_inner(io.inner, pending) < length(pending)
+    # Close inner even if writing failed, since `io` can't be closed again.
+    call_and_close(io.inner) do inner
+        if write_to_inner(inner, pending) < length(pending)
             throw(IOError(IOErrorKinds.WriterFull))
         end
-    finally
-        # Close inner even if writing failed, since `io` can't be closed again.
-        close(io.inner)
     end
     return nothing
 end
@@ -293,6 +291,44 @@ function take_inner(io::ExpandWriter)
     io.closed && throw_closed()
     io.serving_own && drain_own!(io)
     mark_closed!(io)
+    return io.inner
+end
+
+"""
+    get_inner(io::ExpandWriter{T})::T
+
+Return the inner writer of `io`, without closing or flushing `io`.
+
+!!! warning
+    `io` keeps using the inner writer, and assumes it has sole control of it.
+    Mutating the inner writer may invalidate `io`.
+
+Only operations which do not change the inner writer are allowed, like `isopen`,
+`filesize`, or `fd` of the IO it wraps.
+Their results describe the inner writer, not `io`. For example, data written to `io`
+may not have reached the inner writer yet, so `position` of the inner writer may not
+match the position of `io`.
+
+Operations which change the inner writer, like writing, consuming, growing its buffer,
+flushing, seeking or closing it, are not allowed. To write data through to the inner
+writer, flush `io` instead. To use the inner writer freely, call [`take_inner`](@ref)
+instead, which first writes the data buffered in `io` to it.
+
+Throw an `IOError` of kind `ClosedIO` if `io` is closed.
+
+# Examples
+```jldoctest
+julia> inner = BufWriter(IOBuffer()); writer = ExpandWriter(inner);
+
+julia> get_inner(writer) === inner
+true
+
+julia> isopen(get_inner(writer))
+true
+```
+"""
+function get_inner(io::ExpandWriter)
+    io.closed && throw_closed()
     return io.inner
 end
 

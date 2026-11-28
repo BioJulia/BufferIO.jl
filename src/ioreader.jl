@@ -6,6 +6,9 @@ Wrapper type to convert an `AbstractBufReader` to an `IO`.
 `IOReader`s implement the same part of the `IO` interface as `AbstractBufReader`,
 so this type is only used to satisfy type constraints.
 
+Most users should use the `IOReader(f, ::AbstractBufReader)` constructor, which
+automatically closes the inner reader after applying `f` to the resulting `IOReader`.
+
 # Examples
 ```jldoctest
 julia> io = CursorReader("hello");
@@ -25,6 +28,27 @@ struct IOReader{T <: AbstractBufReader} <: IO
 end
 
 take_inner(x::IOReader) = x.x
+
+"""
+    get_inner(io::IOReader{T})::T
+
+Return the `AbstractBufReader` wrapped by `io`.
+
+An `IOReader` has no buffer or state of its own, so the wrapped reader may be used freely,
+and `io` reflects any operation on it. For example, closing the wrapped reader closes `io`.
+
+# Examples
+```jldoctest
+julia> cursor = CursorReader("abc"); io = IOReader(cursor);
+
+julia> get_inner(io) === cursor
+true
+
+julia> read(get_inner(io), UInt8); String(read(io))
+"bc"
+```
+"""
+get_inner(x::IOReader) = x.x
 
 for f in [
         :bytesavailable,
@@ -73,6 +97,11 @@ end
 Base.read(x::IOReader, n::Integer) = read(x.x, n)
 Base.readline(x::IOReader; keep::Bool = false) = readline(x.x; keep)
 Base.seek(x::IOReader, n::Integer) = (seek(x.x, n); x)
+Base.seekend(x::IOReader) = (seekend(x.x); x)
+Base.skip(x::IOReader, n::Integer) = (skip(x.x, n); x)
+
+# Base falls back to `isopen` for `IO`
+Base.iswritable(::IOReader) = false
 
 function Base.readbytes!(x::IOReader, b::AbstractVector{UInt8}, nb::Integer = length(b))
     return readbytes!(x.x, b, nb)

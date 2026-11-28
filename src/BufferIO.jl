@@ -38,6 +38,7 @@ export AbstractBufReader,
     write_repeated,
     relative_seek,
     take_inner,
+    get_inner,
     drop_own,
     expandable,
     remaining_bytes_hint
@@ -210,12 +211,12 @@ Subtypes `T` of this type should implement at least:
 * `get_buffer(io::T)`
 * `fill_buffer(io::T)`
 * `consume(io::T, n::Int)`
-* `Base.close(io::T)`
 * `Base.isopen(io::T)`
 
 Subtypes may optionally define the following methods. See their docstring for `BufReader` / `BufWriter`
 for details of the implementation:
 
+* `Base.close(io::T)`.
 * `Base.seek(io::T, ::Int)`
 * `relative_seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
@@ -255,11 +256,11 @@ Subtypes `T` of this type should implement at least:
 * `get_buffer(io::T)`
 * `grow_buffer(io::T)`
 * `consume(io::T, n::Int)`
-* `Base.close(io::T)`
 * `Base.isopen(io::T)`
 * `Base.flush(io::T)`
 
 They may optionally implement
+* `Base.close(io::T)`.
 * `Base.seek(io::T, ::Int)`
 * `Base.filesize(io::T)`
 * `Base.position(io::T)`
@@ -279,6 +280,8 @@ Get the available bytes of `io`.
 Calling this function, even when the buffer is empty, should never do actual system I/O,
 and in particular should not attempt to fill the buffer.
 To fill the buffer, call [`fill_buffer`](@ref).
+
+Most call sites can more conveniently use [`get_nonempty_buffer`](@ref) instead.
 
 # Examples
 ```jldoctest
@@ -327,6 +330,10 @@ This function should never return `nothing` if the buffer is empty.
     because doing so may force growing the buffer instead of letting `io` choose an optimal
     buffer size. Calling `fill_buffer` with a nonempty buffer is only appropriate if, for
     algorithmic reasons you need `io` itself to buffer some minimum amount of data.
+    Users may want to use [`get_nonempty_buffer`](@ref) for automatic filling when the buffer
+    is empty.
+
+See also: [`get_nonempty_buffer`](@ref)
 
 # Examples
 ```jldoctest
@@ -407,6 +414,8 @@ true
 ```
 """
 function take_inner end
+
+function get_inner end
 
 ######################
 
@@ -1100,6 +1109,23 @@ function remaining_bytes_hint(io::IOStream)::Union{Nothing, Int}
     size = Int(filesize(st))::Int
     (isfile(st) && size > 0) || return nothing
     return max(0, size - Int(position(io))::Int)
+end
+
+# Return `f(io)`, closing `io` also if `f` throws.
+# This does not use `finally`, because if `f` and `close` both threw, the error from `close`
+# would replace the one from `f`, which is the root cause.
+function call_and_close(f, io::Union{IO, AbstractBufReader, AbstractBufWriter})
+    result = try
+        f(io)
+    catch
+        try
+            close(io)
+        catch
+        end
+        rethrow()
+    end
+    close(io)
+    return result
 end
 
 include("base.jl")

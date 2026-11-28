@@ -350,3 +350,12 @@ end
     end
     @test isempty(ambiguities)
 end
+
+@testset "isreadable and iswritable" begin
+    io = LineWriter(BufWriter(IOBuffer()))
+    @test !isreadable(io)
+    @test iswritable(io)
+    close(io)
+    @test !isreadable(io)
+    @test !iswritable(io)
+end

@@ -250,6 +250,35 @@ end
     @test io.inner.closed
 end
 
+# Writer which has room for 2 bytes, and fails when closed
+mutable struct FailingCloseWriter <: AbstractBufWriter
+    const mem::Memory{UInt8}
+    consumed::Int
+    closed::Bool
+end
+
+FailingCloseWriter() = FailingCloseWriter(Memory{UInt8}(undef, 2), 0, false)
+
+BufferIO.get_buffer(x::FailingCloseWriter) = MemoryView(x.mem)[(x.consumed + 1):end]
+BufferIO.grow_buffer(::FailingCloseWriter) = 0
+BufferIO.consume(x::FailingCloseWriter, n::Int) = (x.consumed += n; nothing)
+Base.close(x::FailingCloseWriter) = (x.closed = true; error("close failed"))
+
+@testset "ExpandWriter close when inner throws" begin
+    # If both writing to and closing inner throws, the write error is propagated
+    io = ExpandWriter(FailingCloseWriter())
+    get_nonempty_buffer(io, 3)[1:3] .= codeunits("abc")
+    consume(io, 3)
+    @test_throws IOError(IOErrorKinds.WriterFull) close(io)
+    @test !isopen(io)
+    @test io.inner.closed
+
+    # If only closing throws, that error is propagated
+    io = ExpandWriter(FailingCloseWriter())
+    @test_throws ErrorException("close failed") close(io)
+    @test !isopen(io)
+end
+
 @testset "ExpandWriter unsafe_write" begin
     # When serving own buffer, small writes go to the own buffer
     io = ExpandWriter(BlockWriter(4))
@@ -525,4 +554,31 @@ end
     # Result can provide a buffer beyond inner's limit
     io = expandable(BoundedWriter(UInt8[], 3))
     @test length(get_nonempty_buffer(io, 100)) ≥ 100
+end
+
+@testset "get_inner" begin
+    sink = UInt8[]
+    inner = BoundedWriter(sink, 4)
+    writer = ExpandWriter(inner)
+    @test get_inner(writer) === inner
+    # Getting the inner writer does not flush `writer`
+    write(writer, "abc")
+    @test get_inner(writer) === inner
+    @test isempty(sink)
+    # Nor does it disturb `writer` while it serves its own buffer
+    buffer = get_nonempty_buffer(writer, 8)
+    buffer[1:8] .= codeunits("defghijk")
+    consume(writer, 8)
+    @test get_inner(writer) === inner
+    @test isopen(get_inner(writer))
+    flush(writer)
+    @test String(copy(sink)) == "abcdefghijk"
+
+    @test isopen(writer)
+    close(writer)
+    @test_throws IOError get_inner(writer)
+
+    writer = ExpandWriter(VecWriter())
+    take_inner(writer)
+    @test_throws IOError get_inner(writer)
 end
