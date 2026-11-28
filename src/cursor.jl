@@ -33,7 +33,7 @@ end
 
 fill_buffer(::CursorReader) = 0
 
-get_buffer(x::CursorReader) = @inbounds x.data[(x.offset + 1):end]
+get_buffer(x::CursorReader) = @inbounds truncate_start(x.data, x.offset + 1)
 
 """
     Base.position(io::AbstractBufReader)::Int
@@ -95,6 +95,13 @@ function Base.seek(x::CursorReader, offset::Int)
     in(offset, 0:filesize(x)) || throw(IOError(IOErrorKinds.BadSeek))
     x.offset = offset
     return x
+end
+
+Base.eof(x::CursorReader) = x.offset >= length(x.data)
+
+function Base.peek(io::CursorReader, ::Type{UInt8})
+    io.offset >= length(io.data) && throw(IOError(IOErrorKinds.EOF))
+    return @inbounds io.data[io.offset + 1]
 end
 
 """

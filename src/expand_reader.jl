@@ -84,7 +84,7 @@ Base.@propagate_inbounds function consume(io::ExpandReader, n::Int)
         # since inner's buffer may contain more bytes, and the buffer must only grow
         # when `fill_buffer` is called.
         # Note: truncate_start keeps the backing memory, even when the result is empty.
-        io.buffer = @inbounds MemoryViews.truncate_start(io.buffer, n + 1)
+        io.buffer = @inbounds truncate_start(io.buffer, n + 1)
     else
         consume(io.inner, n)
     end
@@ -412,7 +412,7 @@ function relative_seek(io::ExpandReader, delta::Int)
     n_own = length(io.buffer)
     if delta >= 0
         if delta <= n_own
-            io.buffer = @inbounds MemoryViews.truncate_start(io.buffer, delta + 1)
+            io.buffer = @inbounds truncate_start(io.buffer, delta + 1)
             return io
         end
     elseif !iszero(n_own)

@@ -301,7 +301,7 @@ end
             resize!(b, n_read + grow_size(x, nb - n_read, n_read, length(buffer), use_hint))
             use_hint = false
         end
-        dst = @inbounds MemoryView(b)[(n_read + 1):end]
+        dst = @inbounds truncate_start(MemoryView(b), n_read + 1)
         n = read_into!(x, dst)
         iszero(n) && break
         n_read += n

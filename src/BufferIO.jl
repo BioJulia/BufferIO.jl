@@ -499,7 +499,7 @@ function read_all!(io::AbstractBufReader, dst::MutableMemoryView{UInt8})::Int
         n_read_here = read_into!(io, dst)
         iszero(n_read_here) && break
         n_total_read += n_read_here
-        dst = @inbounds dst[(n_read_here + 1):end]
+        dst = @inbounds truncate_start(dst, n_read_here + 1)
     end
     return n_total_read
 end
@@ -919,6 +919,31 @@ function copyto_start!(dst::MutableMemoryView{T}, src::ImmutableMemoryView{T})::
     @inbounds copyto!(@inbounds(dst[begin:mn]), @inbounds(src[begin:mn]))
     return mn
 end
+
+# Get `mem[from:end]`, like the internal `MemoryViews.truncate_start`.
+# `from` must be in `1:(length(mem) + 1)`. The result shares memory with `mem`, also
+# when it is empty.
+# This is faster than slicing with a range, which must handle arbitrary empty ranges,
+# and which therefore makes the emptiness of the result opaque to the compiler.
+@inline function truncate_start(mem::MemoryView{T, M}, from::Int) where {T, M}
+    @boundscheck if ((from - 1) % UInt) > (length(mem) % UInt)
+        throw_truncate_start_error(mem, from)
+    end
+    len = length(mem) - from + 1
+    # When the result is empty, `from` may be one past the end of the memory, which is
+    # not a valid index for a `MemoryRef`, so use the ref of `mem` instead.
+    # Don't create a new ref in that case: if the backing memory is empty, even index 1 is
+    # out of bounds, which errors when bounds checks are forced with `--check-bounds=yes`.
+    # Note: Selecting the index instead, i.e. `memoryref(ref, ifelse(iszero(len), 1, from))`
+    # lets LLVM vectorize tight loops over `get_buffer(::CursorReader)`, but that is
+    # not possible to do correctly with `--check-bounds=yes` using only public API.
+    oldref = unsafe_memoryref(mem)
+    ref = iszero(len) ? oldref : @inbounds memoryref(oldref, from)
+    view = MemoryViews.unsafe_from_parts(ref, len)
+    return M === MemoryViews.Immutable ? ImmutableMemoryView(view) : view
+end
+
+@noinline throw_truncate_start_error(mem::MemoryView, from::Int) = throw(BoundsError(mem, from))
 
 # Get the new size of a buffer grown from size `size`
 # Copied from Base

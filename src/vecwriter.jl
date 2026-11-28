@@ -141,7 +141,7 @@ end
 
 function get_buffer(x::VecWriter)
     vec = x.vec
-    return @inbounds MemoryView(get_memory(vec))[first_unused_memindex(vec):end]
+    return @inbounds truncate_start(MemoryView(get_memory(vec)), first_unused_memindex(vec))
 end
 
 function get_nonempty_buffer(x::VecWriter, min_size::Int)
