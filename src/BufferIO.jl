@@ -932,7 +932,13 @@ end
     len = length(mem) - from + 1
     # When the result is empty, `from` may be one past the end of the memory, which is
     # not a valid index for a `MemoryRef`, so use the ref of `mem` instead.
-    ref = @inbounds memoryref(unsafe_memoryref(mem), ifelse(iszero(len), 1, from))
+    # Don't create a new ref in that case: if the backing memory is empty, even index 1 is
+    # out of bounds, which errors when bounds checks are forced with `--check-bounds=yes`.
+    # Note: Selecting the index instead, i.e. `memoryref(ref, ifelse(iszero(len), 1, from))`
+    # lets LLVM vectorize tight loops over `get_buffer(::CursorReader)`, but that is
+    # not possible to do correctly with `--check-bounds=yes` using only public API.
+    oldref = unsafe_memoryref(mem)
+    ref = iszero(len) ? oldref : @inbounds memoryref(oldref, from)
     view = MemoryViews.unsafe_from_parts(ref, len)
     return M === MemoryViews.Immutable ? ImmutableMemoryView(view) : view
 end
